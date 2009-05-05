@@ -12,12 +12,15 @@ class PiewApp:
   Instance attributes:
     w -- main window
     img -- image widget
+    info -- text information about displayed content
+    layout -- fixed widget which contains img and info
     pb -- pixbuf object of the current image
     zoom -- current zoom
     pos_x,pos_y -- current image position (pixel displayed at windows's center)
     files -- list of browsed files
     cur_file -- displayed file
     _drag_x,_drag_y -- last drag position, or None
+    _last_w_s -- last window size, used to detect effecting resizing
     _redraw_task -- ID of scheduled redraw task, or None
     _fullscreen -- window fullscreen state
 
@@ -27,9 +30,24 @@ class PiewApp:
 
   w_min_size = (50,50)
   w_default_size = (800,500)
-  default_files = ['.']
+  default_files = [u'.']
   bg_color = gtk.gdk.color_parse('black')
+
+  # Format of info label, with Pango markup
+  # The following characters are recognized:
+  #   %f   image filename
+  #   %w   image width (in pixels)
+  #   %h   image height (in pixels)
+  #   %z   zoom value (in %)
+  #   %n   position of current image in file list
+  #   %N   file list size
+  #   %%   literal '%'
+  info_format = '<span font_desc="Sans 10" color="green">%f  ( %w x %h )  [ %n / %N ]  %z %%</span>'
+  # Info label position (offset from top left corner)
+  info_position = (10,5)
+
   move_step = 50
+
   # supported extensions (cas insensitive)
   file_exts = ('png','jpg','jpeg','gif','bmp')
 
@@ -67,11 +85,20 @@ class PiewApp:
     self.w.set_default_size(*self.w_default_size)
     self.w.modify_bg(gtk.STATE_NORMAL, self.bg_color)
 
+    self.layout = gtk.Fixed()
+    self.info = gtk.Label()
+    self.info.set_use_markup(True)
+    self.info.set_use_underline(False)
+    self.info.set_markup('-')
+
     self.img = gtk.Image()
     self.pb = self.empty_pixbuf
     self.img.set_from_pixbuf(self.pb)
     self.img.set_redraw_on_allocate(False)
-    self.img.set_size_request(*self.w_min_size)
+
+    self.layout.put(self.img, 0, 0)
+    self.layout.put(self.info, *self.info_position)
+    self.layout.set_size_request(*self.w_min_size)
 
     self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK|gtk.gdk.BUTTON_RELEASE_MASK|gtk.gdk.BUTTON1_MOTION_MASK)
     self.w.connect('destroy', self.quit)
@@ -86,10 +113,11 @@ class PiewApp:
     self._redraw_task = None
     self._fullscreen = None
     self._drag_x, self._drag_y = None, None
+    self._last_w_s = self.w.get_size()
     self.pos_x, self.pos_y = 0, 0
     self.zoom = 1
 
-    self.w.add(self.img)
+    self.w.add(self.layout)
     self.w.show_all()
     self.change_file(0)
 
@@ -100,6 +128,7 @@ class PiewApp:
     """
     self.files = []
     for f in files:
+      f = unicode(f)
       if os.path.isfile(f):
         self.files.append(f)
       if os.path.isdir(f):
@@ -129,7 +158,6 @@ class PiewApp:
     #TODO animate animated gifs
     self.pb = gtk.gdk.pixbuf_new_from_file(fname)
     self.cur_file = fname
-    print "loaded '%s'" % fname #XXX:debug
     self.move()
     self.zoom_adjust()
 
@@ -143,7 +171,7 @@ class PiewApp:
 
   def redraw(self):
     """Redraw the image."""
-    w_sx, w_sy = self.w.get_size()
+    w_sx, w_sy = self.w.get_size() #XXX:test
     img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
     pb = self.pb
 
@@ -164,11 +192,37 @@ class PiewApp:
           min(w_sx, dst_sx), min(w_sy, dst_sy),
           self.interp_type
           )
+    else:
+      dst_sx, dst_sy = pb.get_width(), pb.get_height()
 
     self.img.set_from_pixbuf(pb)
+
+    # Center image
+    self.layout.move(self.img, (w_sx-dst_sx)/2, (w_sy-dst_sy)/2)
+    self.info.set_markup( self.format_info() )
+
     # stop scheduled task
     self._redraw_task = None
     return False
+
+  def format_info(self):
+    s = self.info_format
+    try:
+      val_n = self.files.index(self.cur_file) + 1
+    except ValueError:
+      val_n = '?'
+    d = {
+        '%f': self.cur_file,
+        '%w': self.pb.get_width(),
+        '%h': self.pb.get_height(),
+        '%z': int(self.zoom * 100),
+        '%n': val_n,
+        '%N': len(self.files),
+        '%%': '%',
+        }
+    for k,v in d.items():
+      s = s.replace(k,str(v))
+    return s
 
 
   def move(self, pos=None, rel=True):
@@ -302,11 +356,9 @@ class PiewApp:
 
 
   def event_resize(self, w, alloc):
-    pb = self.img.get_pixbuf()
-    pb_sx, pb_sy = pb.get_width(), pb.get_height()
-    if pb_sy < alloc.width or pb_sy < alloc.height:
-      if pb_sx < self.pb.get_width()*self.zoom and pb_sy < self.pb.get_height()*self.zoom:
-        self.refresh()
+    if self._last_w_s != self.w.get_size():
+      self._last_w_s = self.w.get_size()
+      self.refresh()
     return True
 
   def event_mouse_scroll(self, button, ev):
