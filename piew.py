@@ -2,7 +2,7 @@
 # vim: fileencoding=utf-8
 
 import gtk, gobject
-import os
+import os, re
 from math import ceil
 
 
@@ -18,11 +18,14 @@ class PiewApp:
     zoom -- current zoom
     pos_x,pos_y -- current image position (pixel displayed at windows's center)
     files -- list of browsed files
-    cur_file -- displayed file
+    _files_orig -- original list of files (used for refresh)
+    cur_file -- displayed file, None (no file) or False (invalid file)
     _drag_x,_drag_y -- last drag position, or None
     _last_w_s -- last window size, used to detect effecting resizing
     _redraw_task -- ID of scheduled redraw task, or None
     _fullscreen -- window fullscreen state
+
+  See configuration values and user events for customization.
 
   """
 
@@ -45,11 +48,25 @@ class PiewApp:
   info_format = '<span font_desc="Sans 10" color="green">%f  ( %w x %h )  [ %n / %N ]  %z %%</span>'
   # Info label position (offset from top left corner)
   info_position = (10,5)
+  # Filename substitutes for invalid files (Pango markup)
+  info_txt_no_image = '<i>no file</i>'
+  info_txt_bad_image = '<i>invalid file format</i>'
 
-  move_step = 50
+  # Step (in pixels) when moving around with arrow keys
+  # Keys are GDK Modifier masks (None for default value).
+  move_step = {
+      None: 50,
+      gtk.gdk.MOD1_MASK: 10,
+      gtk.gdk.SHIFT_MASK: 500,
+      }
+  # Step when moving through filelist.
+  filelist_step = {
+      None: 1,
+      gtk.gdk.SHIFT_MASK: 5,
+      }
 
   # supported extensions (cas insensitive)
-  file_exts = ('png','jpg','jpeg','gif','bmp')
+  file_exts = reduce(lambda l,f:l+f['extensions'], gtk.gdk.pixbuf_get_formats(), [] )
 
   # List of zoom steps when zooming in/out
   zoom_steps = tuple(
@@ -70,9 +87,12 @@ class PiewApp:
   #interp_type = gtk.gdk.INTERP_NEAREST
   interp_type = gtk.gdk.INTERP_BILINEAR
 
-  # Default (empty) pixbuf
+  # Empty pixbuf (or image) for invalid files
   empty_pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB,False,8,1,1)
+  empty_pixbuf.fill(0)
 
+
+  # Application birth and death methods
 
   def __init__(self, files=None):
     self.cur_file = None
@@ -121,29 +141,45 @@ class PiewApp:
     self.w.show_all()
     self.change_file(0)
 
+  def main(self):
+    gtk.main()
 
-  def set_filelist(self, files):
-    """Set list of image files.
+  def quit(self, *args):
+    gtk.main_quit()
+
+
+  # File related methods
+
+  def set_filelist(self, files=None):
+    """Set or reload list of image files.
     Directories are opened and images they contain are added.
+    If files is None, the original filelist is reloaded.
+    Doublets are removed, files are sorted (string comparaison).
     """
-    self.files = []
-    for f in files:
-      f = unicode(f)
+    if files is not None:
+      self._files_orig = files
+    self.files = set() # not doublets
+    for f in self._files_orig:
+      f = os.path.normpath( unicode(f) )
       if os.path.isfile(f):
-        self.files.append(f)
+        self.files.add(f)
       if os.path.isdir(f):
         for ff in sorted(os.listdir(f)):
           ff = os.path.join(f,ff)
           if os.path.isfile(ff):
-            self.files.append(ff)
-    self.files = filter(lambda f: f.split('.')[-1].lower() in self.file_exts, self.files)
+            self.files.add(ff)
+    # convert to a list, filter, sort
+    self.files = filter(lambda f: f.split('.')[-1].lower() in self.file_exts, list(self.files))
+    self.files.sort()
 
   def change_file(self, n=0):
     """Change current file.
     n is the filelist move (eg. -1 for the previous file)
     or 0 to load the first file.
     """
-    if n == 0 or self.cur_file is None:
+    if len(self.files) == 0:
+      f = None
+    elif n == 0 or self.cur_file is None:
       f = self.files[0]
     else:
       try:
@@ -153,15 +189,24 @@ class PiewApp:
         f = self.files[0]
     self.load_image(f)
 
-
   def load_image(self, fname):
-    #TODO animate animated gifs
-    self.pb = gtk.gdk.pixbuf_new_from_file(fname)
+    """Load a given image.
+    If fname is None, display will be cleared and info text will be properly
+    set.
+    """
+    if fname is None:
+      self.pb = self.empty_pixbuf
+    else:
+      #TODO animate animated gifs
+      self.pb = gtk.gdk.pixbuf_new_from_file(fname)
+      if self.pb is None: # invalid format
+        fname = False
     self.cur_file = fname
     self.move()
     self.zoom_adjust()
 
 
+  # Drawing methods
 
   def refresh(self):
     """Schedule redrawing."""
@@ -171,34 +216,33 @@ class PiewApp:
 
   def redraw(self):
     """Redraw the image."""
-    w_sx, w_sy = self.w.get_size() #XXX:test
+    w_sx, w_sy = self.w.get_size()
     img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
     pb = self.pb
 
-    src_sx = int(ceil(w_sx/self.zoom))
-    src_sy = int(ceil(w_sy/self.zoom))
+    src_sx, src_sy = w_sx/self.zoom, w_sy/self.zoom
     if src_sx < img_sx or src_sy < img_sy:
+      src_x = max(0,int(self.pos_x-src_sx/2))
+      src_y = max(0,int(self.pos_y-src_sy/2))
       pb = pb.subpixbuf(
-          max(0,int((self.pos_x-w_sx/2)/self.zoom)),
-          max(0,int((self.pos_y-w_sy/2)/self.zoom)),
-          min(img_sx, src_sx), min(img_sy, src_sy)
+          src_x, src_y,
+          int(min(src_sx, img_sx-src_x)),
+          int(min(src_sy, img_sy-src_y))
           )
 
     #XXX display with NEAREST filter and schedule a 'nice' redraw
     if self.zoom != 1:
-      dst_sx = int(ceil(self.zoom*pb.get_width()))
-      dst_sy = int(ceil(self.zoom*pb.get_height()))
+      dst_sx = int(self.zoom*pb.get_width())
+      dst_sy = int(self.zoom*pb.get_height())
       pb = pb.scale_simple(
           min(w_sx, dst_sx), min(w_sy, dst_sy),
           self.interp_type
           )
-    else:
-      dst_sx, dst_sy = pb.get_width(), pb.get_height()
 
     self.img.set_from_pixbuf(pb)
 
     # Center image
-    self.layout.move(self.img, (w_sx-dst_sx)/2, (w_sy-dst_sy)/2)
+    self.layout.move(self.img, (w_sx-pb.get_width())/2, (w_sy-pb.get_height())/2)
     self.info.set_markup( self.format_info() )
 
     # stop scheduled task
@@ -206,24 +250,37 @@ class PiewApp:
     return False
 
   def format_info(self):
-    s = self.info_format
-    try:
-      val_n = self.files.index(self.cur_file) + 1
-    except ValueError:
-      val_n = '?'
+    """Return Pango markup for self.info."""
+    # Get formatting data
     d = {
-        '%f': self.cur_file,
-        '%w': self.pb.get_width(),
-        '%h': self.pb.get_height(),
-        '%z': int(self.zoom * 100),
-        '%n': val_n,
-        '%N': len(self.files),
-        '%%': '%',
+        'w': self.pb.get_width(),
+        'h': self.pb.get_height(),
+        'z': int(self.zoom * 100),
+        'N': len(self.files),
+        '%': '%',
         }
-    for k,v in d.items():
-      s = s.replace(k,str(v))
-    return s
+    # Filename
+    if self.cur_file is None:
+      d['f'] = self.info_txt_no_image
+    elif self.cur_file is False:
+      d['f'] = self.info_txt_bad_image
+    else:
+      d['f'] = gobject.markup_escape_text( self.cur_file )
+    # File position
+    try:
+      d['n'] = self.files.index(self.cur_file) + 1
+    except ValueError:
+      d['n'] = '?'
 
+    # Format
+    return re.sub(
+        '%(['+''.join(d.keys())+'])',
+        lambda m: str( d[ m.group(1) ] ),
+        self.info_format
+        )
+
+
+  # Image position, zoom, etc.
 
   def move(self, pos=None, rel=True):
     """Move image display.
@@ -232,7 +289,7 @@ class PiewApp:
     """
 
     w_sx, w_sy = self.w.get_size()
-    img_sx, img_sy = int(self.pb.get_width()*self.zoom), int(self.pb.get_height()*self.zoom)
+    img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
     if pos is None:
       x,y = img_sx/2,img_sy/2
     elif rel:
@@ -240,16 +297,16 @@ class PiewApp:
     else:
       x,y = pos
     # clamp and center
-    if img_sx <= w_sx: x = 0
-    elif x < w_sx/2: x = w_sx/2
-    else: x = min(x, img_sx - w_sx/2 - 1)
-    if img_sy <= w_sy: y = 0
-    elif y < w_sy/2: y = w_sy/2
-    else: y = min(y, img_sy - w_sy/2 - 1)
+    dst_sx, dst_sy = float(w_sx)/self.zoom, float(w_sy)/self.zoom
+    if img_sx <= dst_sx: x = img_sx/2
+    elif x < dst_sx/2: x = dst_sx/2
+    else: x = min(x, img_sx - dst_sx/2 - 1)
+    if img_sy <= dst_sy: y = img_sy/2
+    elif y < dst_sy/2: y = dst_sy/2
+    else: y = min(y, img_sy - dst_sy/2 - 1)
 
     self.pos_x, self.pos_y = int(x), int(y)
     self.refresh()
-
 
   def set_zoom(self, z, center=None, rel=False):
     """Zoom at a given point.
@@ -268,11 +325,11 @@ class PiewApp:
     else:
       c_x, c_y = center[0]-w_sx/2, center[1]-w_sy/2
     # Center
-    # z (pos+c) = z' (pos'+c)
-    # pos' = z'/z (pos+c) - c
-    zf = z/self.zoom
-    pos_x = zf * (self.pos_x+c_x) - c_x
-    pos_y = zf * (self.pos_y+c_y) - c_y
+    # pos+c/z = pos'+c/z'
+    # pos' = pos + c*(1/z-1/z')
+    zk = 1./self.zoom - 1./z
+    pos_x = self.pos_x + c_x * zk
+    pos_y = self.pos_y + c_y * zk
 
     self.zoom = z
     self.move( (pos_x,pos_y), False)
@@ -298,15 +355,6 @@ class PiewApp:
     z = min( 1, float(w_sx)/img_sx, float(w_sy)/img_sy )
     self.set_zoom( z, None )
 
-  def is_adjusted(self):
-    """Return True if the whole image fits in the window."""
-    w_sx, w_sy = self.w.get_size()
-    return (
-        w_sx >= int(self.pb.get_width()*self.zoom) and
-        w_sy >= int(self.pb.get_height()*self.zoom)
-        )
-
-
   def fullscreen(self, state=None):
     """Change fullscreen state
     True/False to set, None to toggle.
@@ -318,6 +366,31 @@ class PiewApp:
     else:
       self.w.unfullscreen()
 
+  def is_adjusted(self):
+    """Return True if the whole image fits in the window."""
+    w_sx, w_sy = self.w.get_size()
+    return (
+        w_sx >= int(self.pb.get_width()*self.zoom) and
+        w_sy >= int(self.pb.get_height()*self.zoom)
+        )
+
+
+  # Internal events
+
+  def event_resize(self, w, alloc):
+    if self._last_w_s != self.w.get_size():
+      self._last_w_s = self.w.get_size()
+      self.refresh()
+    return True
+
+  def event_window_state(self, w, ev):
+    self._fullscreen = (ev.new_window_state & gtk.gdk.WINDOW_STATE_FULLSCREEN) != 0
+    return True
+
+
+  # User events (tweak them to your liking)
+  # New events may be defined in __init__() (see w.connect() calls).
+  # (And don't forget to update flags in w.add_events() call if needed!)
 
   def event_kb_press(self, w, ev):
     keyname = gtk.gdk.keyval_name(ev.keyval)
@@ -326,39 +399,68 @@ class PiewApp:
     elif keyname == 'f':
       self.fullscreen()
     elif keyname in ('space','Page_Down'):
-      self.change_file(+1)
+      self.change_file(+self.get_filelist_step(ev))
     elif keyname in ('BackSpace','Page_Up'):
-      self.change_file(-1)
-    # Arrows
+      self.change_file(-self.get_filelist_step(ev))
+    # arrows
     elif keyname == 'Up':
-      self.move( (0,-self.move_step) )
+      self.move( (0,-self.get_move_step(ev)) )
     elif keyname == 'Down':
-      self.move( (0,+self.move_step) )
+      self.move( (0,+self.get_move_step(ev)) )
     elif keyname == 'Left':
       if self.is_adjusted():
-        self.change_file(-1)
+        self.change_file(-self.get_filelist_step(ev))
       else:
-        self.move( (-self.move_step,0) )
+        self.move( (-self.get_move_step(ev),0) )
     elif keyname == 'Right':
       if self.is_adjusted():
-        self.change_file(+1)
+        self.change_file(+self.get_filelist_step(ev))
       else:
-        self.move( (+self.move_step,0) )
+        self.move( (+self.get_move_step(ev),0) )
     # zoom
     elif keyname == 'plus':
       self.zoom_in()
     elif keyname == 'minus':
       self.zoom_out()
+    elif keyname == 'a':
+      self.zoom_adjust()
+    elif keyname == 'z':
+      self.set_zoom(1)
+    # refresh file list
+    elif keyname == 'F5':
+      self.set_filelist()
+
+    # delete file (ask for confirmation)
+    elif keyname == 'Delete' and self.cur_file:
+      dlg = gtk.MessageDialog(self.w, gtk.DIALOG_MODAL,
+          gtk.MESSAGE_QUESTION, gtk.BUTTONS_OK_CANCEL
+          )
+      dlg.set_title("Piew, delete file")
+      dlg.set_markup("Deleting '%s'.\nAre your sure?" % gobject.markup_escape_text(self.cur_file))
+      ret = dlg.run()
+      dlg.destroy()
+      if ret == gtk.RESPONSE_OK:
+        # remove file
+        del_f = self.cur_file
+        try:
+          os.remove(del_f)
+        except OSError, e:
+          print "Cannot delete '%s': %s" % (self.cur_file, e)
+          return True
+        # update filelist and current image
+        if len(self.files) == 1:
+          # this image was the last one
+          self.files = []
+          self.load_image(None)
+        else:
+          self.change_file(+1)
+          try: # just in case, it's safer
+            self.files.remove(del_f)
+          except:
+            pass
+
     else: # not processed
-      print "key: %s" % keyname #XXX:debug
       return False
-    return True
-
-
-  def event_resize(self, w, alloc):
-    if self._last_w_s != self.w.get_size():
-      self._last_w_s = self.w.get_size()
-      self.refresh()
     return True
 
   def event_mouse_scroll(self, button, ev):
@@ -393,17 +495,18 @@ class PiewApp:
       self.change_file(+1)
     return True
 
+  # Helper methods to get step from event
+  def get_move_step(self, ev):
+    try:
+      return self.move_step[ev.state]
+    except KeyError:
+      return self.move_step[None]
+  def get_filelist_step(self, ev):
+    try:
+      return self.filelist_step[ev.state]
+    except KeyError:
+      return self.filelist_step[None]
 
-  def event_window_state(self, w, ev):
-    self._fullscreen = (ev.new_window_state & gtk.gdk.WINDOW_STATE_FULLSCREEN) != 0
-    return True
-
-
-  def main(self):
-    gtk.main()
-
-  def quit(self, *args):
-    gtk.main_quit()
 
 
 if __name__ == '__main__':
