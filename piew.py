@@ -3,7 +3,6 @@
 
 import gtk, gobject
 import os, re
-from math import ceil
 
 
 class PiewApp:
