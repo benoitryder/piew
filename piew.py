@@ -14,6 +14,11 @@ class PiewApp:
     info -- text information about displayed content
     layout -- fixed widget which contains img and info
     pb -- pixbuf object of the current image
+    ani -- PixbufAnimation object (None for static images)
+      The following extra attributes are set on ani:
+        it -- PixbufAnimationIter object
+        t -- current display time (always increases)
+        _task -- ID of scheduled animation update, or None
     zoom -- current zoom
     pos_x,pos_y -- current image position (pixel displayed at windows's center)
     files -- list of browsed files
@@ -112,6 +117,7 @@ class PiewApp:
 
     self.img = gtk.Image()
     self.pb = self.empty_pixbuf
+    self.ani = None
     self.img.set_from_pixbuf(self.pb)
     self.img.set_redraw_on_allocate(False)
 
@@ -193,16 +199,45 @@ class PiewApp:
     If fname is None, display will be cleared and info text will be properly
     set.
     """
+    self.ani_set_state(False)
+    self.ani = None
+    self.pb = None
     if fname is None:
       self.pb = self.empty_pixbuf
     else:
-      #TODO animate animated gifs
-      self.pb = gtk.gdk.pixbuf_new_from_file(fname)
-      if self.pb is None: # invalid format
+      try:
+        ani = gtk.gdk.PixbufAnimation(fname)
+      except gobject.GError, e: # invalid format
+        print "Invalid image '%s': %s" % (fname, e)
+        ani = None
+      if ani is not None:
+        if ani.is_static_image():
+          self.ani = None
+          self.pb = ani.get_static_image()
+        else:
+          ani.t = 1  # 0.0 is a special value, don't use it
+          ani.it = ani.get_iter(ani.t)
+          ani._task = None
+          self.ani = ani
+          self.pb = self.ani.it.get_pixbuf()
+          self.ani_update()  # start animation
+      else:
+        self.pb = self.empty_pixbuf
         fname = False
     self.cur_file = fname
     self.move()
     self.zoom_adjust()
+
+  def ani_update(self):
+    """Advance animation.
+    If a task has been defined, animation is advanced to the next frame.
+    Schedule next update.
+    Always returns False (to be used as gobject event callback).
+    """
+    if self.ani._task is not None:
+      self.ani_next_frame()
+    self.ani._task = gobject.timeout_add(self.ani.it.get_delay_time(), self.ani_update)
+    return False
 
 
   # Drawing methods
@@ -214,7 +249,9 @@ class PiewApp:
     self._redraw_task = gobject.idle_add(self.redraw)
 
   def redraw(self):
-    """Redraw the image."""
+    """Redraw the image.
+    Always returns False (to be used as gobject event callback).
+    """
     w_sx, w_sy = self.w.get_size()
     img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
     pb = self.pb
@@ -373,6 +410,42 @@ class PiewApp:
         w_sy >= int(self.pb.get_height()*self.zoom)
         )
 
+  def ani_is_playing(self):
+    if self.ani is None:
+      return False
+    return self.ani._task is not None
+
+  def ani_set_state(self, state=None):
+    """Set animation play state.
+
+    state values:
+      None -- toggle play/pause
+      True -- play animation
+      False -- pause animation
+
+    Current state is defined by self.ani._task.
+
+    """
+    if self.ani is None:
+      return  # silently ignore static images
+    cur_state = self.ani_is_playing()
+    if state == cur_state:
+      return
+    # Toggle state
+    if cur_state:
+      gobject.source_remove(self.ani._task)
+      self.ani._task = None
+    else:
+      self.ani_update()
+
+  def ani_next_frame(self):
+    if self.ani is None:
+      return  # silently ignore static images
+    self.ani.t += self.ani.it.get_delay_time()/1000.
+    if self.ani.it.advance(self.ani.t):
+      self.pb = self.ani.it.get_pixbuf()
+      self.redraw()
+
 
   # Internal events
 
@@ -428,6 +501,11 @@ class PiewApp:
     # refresh file list
     elif keyname == 'F5':
       self.set_filelist()
+    # animation
+    elif keyname == 'p':
+      self.ani_set_state()
+    elif keyname == 'n':
+      self.ani_next_frame()
 
     # delete file (ask for confirmation)
     elif keyname == 'Delete' and self.cur_file:
