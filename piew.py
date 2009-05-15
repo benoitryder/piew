@@ -91,6 +91,11 @@ class PiewApp:
   #interp_type = gtk.gdk.INTERP_NEAREST
   interp_type = gtk.gdk.INTERP_BILINEAR
 
+  # Frame duration of infinite frames (in ms)
+  # Animation could stop at the last frame (without looping).
+  # This value provides a finite display time for such frames.
+  ani_infinite_frame_duration = 2000
+
   # Empty pixbuf (or image) for invalid files
   empty_pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB,False,8,1,1)
   empty_pixbuf.fill(0)
@@ -236,7 +241,10 @@ class PiewApp:
     """
     if self.ani._task is not None:
       self.ani_next_frame()
-    self.ani._task = gobject.timeout_add(self.ani.it.get_delay_time(), self.ani_update)
+    t = self.ani.it.get_delay_time()
+    if t == -1:
+      t = self.ani_infinite_frame_duration
+    self.ani._task = gobject.timeout_add(t, self.ani_update)
     return False
 
 
