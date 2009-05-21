@@ -562,7 +562,10 @@ class PiewApp:
       return
     if self._drag_x is None:
       self._drag_x, self._drag_y = ev.x, ev.y
-    self.move( (self._drag_x-ev.x, self._drag_y-ev.y) )
+    self.move((
+      (self._drag_x-ev.x)/self.zoom,
+      (self._drag_y-ev.y)/self.zoom
+      ))
     self._drag_x, self._drag_y = ev.x, ev.y
     return True
 
