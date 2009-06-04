@@ -12,6 +12,7 @@ class PiewApp:
     w -- main window
     img -- image widget
     info -- text information about displayed content
+    pix_info -- text information about pixel
     layout -- fixed widget which contains img and info
     pb -- pixbuf object of the current image
     ani -- PixbufAnimation object (None for static images)
@@ -28,6 +29,7 @@ class PiewApp:
     _last_w_s -- last window size, used to detect effecting resizing
     _redraw_task -- ID of scheduled redraw task, or None
     _fullscreen -- window fullscreen state
+    _mouse_x,_mouse_y -- current mouse position
 
   See configuration values and user events for customization.
 
@@ -55,6 +57,18 @@ class PiewApp:
   # Filename substitutes for invalid files (Pango markup)
   info_txt_no_image = '<i>no file</i>'
   info_txt_bad_image = '<i>invalid file format</i>'
+
+  # Format of information about pixel under the cursor
+  # If cursor is not on the image, an empty string is returned.
+  #   %r,%g,%b,%a  color values (alpha displayed only if available)
+  #   %a           value of alpha channel, if available
+  #   %h           color value, HTML format (lowercase), no leading '#')
+  #   %H           same as %h but uppercase
+  #   %i,%I        same as %h and %H but without alpha channel
+  #   %x,%y        pixel position
+  pix_info_format = '<span color="magenta">( %x , %y ) <tt> <span background="#%I">  </span> #%H  <span color="red">%r</span> <span color="green">%g</span> <span color="blue">%b</span> <span color="white">%a</span></tt></span>'
+  # Pixel Info label position (offset from top left corner)
+  pix_info_position = (10,30)
 
   # Step (in pixels) when moving around with arrow keys
   # Keys are GDK Modifier masks (None for default value).
@@ -119,6 +133,10 @@ class PiewApp:
     self.info.set_use_markup(True)
     self.info.set_use_underline(False)
     self.info.set_markup('-')
+    self.pix_info = gtk.Label()
+    self.pix_info.set_use_markup(True)
+    self.pix_info.set_use_underline(False)
+    self.pix_info.set_markup('-')
 
     self.img = gtk.Image()
     self.pb = self.empty_pixbuf
@@ -128,9 +146,10 @@ class PiewApp:
 
     self.layout.put(self.img, 0, 0)
     self.layout.put(self.info, *self.info_position)
+    self.layout.put(self.pix_info, *self.pix_info_position)
     self.layout.set_size_request(*self.w_min_size)
 
-    self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK|gtk.gdk.BUTTON_RELEASE_MASK|gtk.gdk.BUTTON1_MOTION_MASK)
+    self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK|gtk.gdk.BUTTON_RELEASE_MASK|gtk.gdk.POINTER_MOTION_MASK)
     self.w.connect('destroy', self.quit)
     self.w.connect('size-allocate', self.event_resize)
     self.w.connect('key-press-event', self.event_kb_press)
@@ -142,6 +161,7 @@ class PiewApp:
 
     self._redraw_task = None
     self._fullscreen = None
+    self._mouse_x, self._mouse_y = 0, 0
     self._drag_x, self._drag_y = None, None
     self._last_w_s = self.w.get_size()
     self.pos_x, self.pos_y = 0, 0
@@ -287,11 +307,16 @@ class PiewApp:
 
     # Center image
     self.layout.move(self.img, (w_sx-pb.get_width())/2, (w_sy-pb.get_height())/2)
-    self.info.set_markup( self.format_info() )
+
+    self.redraw_info()
 
     # stop scheduled task
     self._redraw_task = None
     return False
+
+  def redraw_info(self):
+    """Redraw image info."""
+    self.info.set_markup( self.format_info() )
 
   def format_info(self):
     """Return Pango markup for self.info."""
@@ -323,6 +348,38 @@ class PiewApp:
         self.info_format
         )
 
+  def redraw_pix_info(self):
+    """Redraw pixel info."""
+    self.pix_info.set_markup( self.format_pix_info() )
+
+  def format_pix_info(self):
+    """Return Pango markup for pixel info."""
+    pos = self.get_cursor_pixel()
+    if pos is None:
+      return ''
+    colors = self.get_pixel_color(*pos)
+    if len(colors) < 3:
+      return '' # should not happen with normal images
+    # Get formatting data
+    d = {
+        'x': pos[0], 'y': pos[1],
+        'r': colors[0],
+        'g': colors[1],
+        'b': colors[2],
+        'a': '' if len(colors)<4 else colors[3],
+        'h': ''.join( '%02x'%c for c in colors ),
+        'H': ''.join( '%02X'%c for c in colors ),
+        'i': ''.join( '%02x'%c for c in colors[:3] ),
+        'I': ''.join( '%02X'%c for c in colors[:3] ),
+        '%': '%',
+        }
+    # Format
+    return re.sub(
+        '%(['+''.join(d.keys())+'])',
+        lambda m: str( d[ m.group(1) ] ),
+        self.pix_info_format
+        )
+
 
   # Image position, zoom, etc.
 
@@ -349,7 +406,7 @@ class PiewApp:
     elif y < dst_sy/2: y = dst_sy/2
     else: y = min(y, img_sy - dst_sy/2 - 1)
 
-    self.pos_x, self.pos_y = int(x), int(y)
+    self.pos_x, self.pos_y = x, y
     self.refresh()
 
   def set_zoom(self, z, center=None, rel=False):
@@ -453,6 +510,29 @@ class PiewApp:
     if self.ani.it.advance(self.ani.t):
       self.pb = self.ani.it.get_pixbuf()
       self.redraw()
+
+  def get_pixel_color(self, x, y):
+    """Get color of a given pixel.
+    Return a tuple with self.pb.get_n_channels() values.
+    """
+    # Get a pixbuf with a single pixel
+    # This avoid to retrieve the whole image data with get_pixels()
+    pb = self.pb.subpixbuf(x,y,1,1)
+    n = pb.get_n_channels()
+    return tuple( ord(c) for c in pb.get_pixels()[0:n] )
+
+  def get_cursor_pixel(self):
+    """Get position of pixel under the cursor.
+    Position is returned as a (x,y) pair.
+    Return None if cursor is not on the image.
+    """
+    img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
+    w_sx, w_sy = self.w.get_size()
+    x = int(round( float(self._mouse_x-w_sx/2)/self.zoom + self.pos_x ))
+    y = int(round( float(self._mouse_y-w_sy/2)/self.zoom + self.pos_y ))
+    if 0 <= x < img_sx and 0 <= y < img_sy:
+      return (x,y)
+    return None
 
 
   # Internal events
@@ -558,7 +638,10 @@ class PiewApp:
     return True
 
   def event_motion_notify(self, w, ev):
-    if not ev.state|gtk.gdk.BUTTON1_MASK:
+    self._mouse_x, self._mouse_y = ev.x, ev.y
+    if ev.state&gtk.gdk.CONTROL_MASK:
+      self.redraw_pix_info()
+    if not ev.state&gtk.gdk.BUTTON1_MASK:
       return
     if self._drag_x is None:
       self._drag_x, self._drag_y = ev.x, ev.y
@@ -578,6 +661,9 @@ class PiewApp:
     if self._drag_x is not None:
       return False
     if ev.button == 1:
+      if ev.state&gtk.gdk.CONTROL_MASK:
+        self.redraw_pix_info()
+        return True
       self.change_file(-1)
     elif ev.button == 3:
       self.change_file(+1)
