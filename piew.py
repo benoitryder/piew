@@ -13,7 +13,10 @@ class PiewApp:
     img -- image widget
     info -- text information about displayed content
     pix_info -- text information about pixel
+    cmd -- command line entry
     layout -- fixed widget which contains img and info
+      The following extra attributes are set on layout:
+        pos -- position of children (but img): {child:(x,y)}
     pb -- pixbuf object of the current image
     ani -- PixbufAnimation object (None for static images)
       The following extra attributes are set on ani:
@@ -31,7 +34,7 @@ class PiewApp:
     _fullscreen -- window fullscreen state
     _mouse_x,_mouse_y -- current mouse position
 
-  See configuration values and user events for customization.
+  See configuration values, user events end commands for customization.
 
   """
 
@@ -53,6 +56,7 @@ class PiewApp:
   #   %%   literal '%'
   info_format = '<span font_desc="Sans 10" color="green">%f  ( %w x %h )  [ %n / %N ]  %z %%</span>'
   # Info label position (offset from top left corner)
+  # Negative positions are relative to the opposite side.
   info_position = (10,5)
   # Filename substitutes for invalid files (Pango markup)
   info_txt_no_image = '<i>no file</i>'
@@ -68,7 +72,12 @@ class PiewApp:
   #   %x,%y        pixel position
   pix_info_format = '<span color="magenta">( %x , %y ) <tt> <span background="#%I">  </span> #%H  <span color="red">%r</span> <span color="green">%g</span> <span color="blue">%b</span> <span color="white">%a</span></tt></span>'
   # Pixel Info label position (offset from top left corner)
+  # Negative positions are relative to the opposite side.
   pix_info_position = (10,30)
+
+  # Command line position
+  # Negative positions are relative to the opposite side.
+  cmd_position = (0,-1)
 
   # Step (in pixels) when moving around with arrow keys
   # Keys are GDK Modifier masks (None for default value).
@@ -128,7 +137,10 @@ class PiewApp:
     self.w.set_default_size(*self.w_default_size)
     self.w.modify_bg(gtk.STATE_NORMAL, self.bg_color)
 
+
+    # Layout and its elements
     self.layout = gtk.Fixed()
+
     self.info = gtk.Label()
     self.info.set_use_markup(True)
     self.info.set_use_underline(False)
@@ -138,6 +150,10 @@ class PiewApp:
     self.pix_info.set_use_underline(False)
     self.pix_info.set_markup('-')
 
+    self.cmd = gtk.Entry()
+    self.cmd.set_no_show_all(True)
+    self.cmd.connect('activate', self.event_cmd_activate)
+
     self.img = gtk.Image()
     self.pb = self.empty_pixbuf
     self.ani = None
@@ -145,9 +161,15 @@ class PiewApp:
     self.img.set_redraw_on_allocate(False)
 
     self.layout.put(self.img, 0, 0)
-    self.layout.put(self.info, *self.info_position)
-    self.layout.put(self.pix_info, *self.pix_info_position)
+    self.layout.pos = {
+        self.info: self.info_position,
+        self.pix_info: self.pix_info_position,
+        self.cmd: self.cmd_position,
+        }
+    for w,pos in self.layout.pos.items():
+      self.layout.put(w, *pos)
     self.layout.set_size_request(*self.w_min_size)
+
 
     self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK|gtk.gdk.BUTTON_RELEASE_MASK|gtk.gdk.POINTER_MOTION_MASK)
     self.w.connect('destroy', self.quit)
@@ -163,13 +185,13 @@ class PiewApp:
     self._fullscreen = None
     self._mouse_x, self._mouse_y = 0, 0
     self._drag_x, self._drag_y = None, None
-    self._last_w_s = self.w.get_size()
+    self._last_w_s = (0,0) # force resize event to occur at startup
     self.pos_x, self.pos_y = 0, 0
     self.zoom = 1
 
     self.w.add(self.layout)
     self.w.show_all()
-    self.change_file(0)
+    self.change_file(0,False)
 
   def main(self):
     gtk.main()
@@ -202,19 +224,21 @@ class PiewApp:
     self.files = filter(lambda f: f.split('.')[-1].lower() in self.file_exts, list(self.files))
     self.files.sort()
 
-  def change_file(self, n=0):
+  def change_file(self, n=0, rel=True):
     """Change current file.
-    n is the filelist move (eg. -1 for the previous file)
-    or 0 to load the first file.
+    n is the filelist position, relative to current position if rel is True.
+    Absolute and relative positions wrap around the bounds of the list.
+    On error the first file is loaded.
     """
     if len(self.files) == 0:
       f = None
-    elif n == 0 or self.cur_file is None:
+    elif self.cur_file is None:
       f = self.files[0]
     else:
       try:
-        i = self.files.index(self.cur_file)
-        f = self.files[ (i+n) % len(self.files) ]
+        if rel:
+          n += self.files.index(self.cur_file)
+        f = self.files[ n % len(self.files) ]
       except ValueError:
         f = self.files[0]
     self.load_image(f)
@@ -348,15 +372,25 @@ class PiewApp:
         self.info_format
         )
 
-  def redraw_pix_info(self):
+  def redraw_pix_info(self, pos=None):
     """Redraw pixel info."""
-    self.pix_info.set_markup( self.format_pix_info() )
+    s = self.format_pix_info(pos)
+    if s is None:
+      self.pix_info.hide()
+    else:
+      self.pix_info.set_markup( s )
+      self.pix_info.show()
 
-  def format_pix_info(self):
+  def format_pix_info(self, pos=None):
     """Return Pango markup for pixel info."""
-    pos = self.get_cursor_pixel()
     if pos is None:
-      return ''
+      pos = self.get_cursor_pixel()
+      if pos is None:
+        return None
+    else:
+      img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
+      if not (0 <= pos[0] < img_sx and 0 <= pos[1] < img_sy):
+        return None
     colors = self.get_pixel_color(*pos)
     if len(colors) < 3:
       return '' # should not happen with normal images
@@ -540,6 +574,15 @@ class PiewApp:
   def event_resize(self, w, alloc):
     if self._last_w_s != self.w.get_size():
       self._last_w_s = self.w.get_size()
+      # repositionate layout elements
+      for w,pos in self.layout.pos.items():
+        if pos[0] >= 0 and pos[1] >= 0: continue
+        x,y = pos
+        if x < 0:
+          x += self._last_w_s[0] - w.get_allocation().width
+        if y < 0:
+          y += self._last_w_s[1] - w.get_allocation().height
+        self.layout.move(w, x, y)
       self.refresh()
     return True
 
@@ -554,6 +597,11 @@ class PiewApp:
 
   def event_kb_press(self, w, ev):
     keyname = gtk.gdk.keyval_name(ev.keyval)
+    if self.cmd.is_focus():
+      if keyname == 'Escape':
+        self.cmd.hide()
+      return False
+
     if keyname in ('q','Escape'):
       self.quit()
     elif keyname == 'f':
@@ -594,6 +642,11 @@ class PiewApp:
       self.ani_set_state()
     elif keyname == 'n':
       self.ani_next_frame()
+    # commands
+    elif keyname == 'colon':
+      self.cmd_show()
+    elif keyname == 'g':
+      self.cmd_show('goto ')
 
     # delete file (ask for confirmation)
     elif keyname == 'Delete' and self.cur_file:
@@ -680,6 +733,47 @@ class PiewApp:
       return self.filelist_step[ev.state]
     except KeyError:
       return self.filelist_step[None]
+
+
+  # Command line
+
+  def cmd_show(self, txt=''):
+    """Display command entry with given text."""
+    self.cmd.set_text(txt)
+    self.cmd.show()
+    # when hidding, cmd has no height, force resize
+    self._last_w_s = (0,0)
+    self.cmd.grab_focus()
+    self.cmd.set_position(-1)
+
+  def event_cmd_activate(self, w):
+    args = self.cmd.get_text().split(None,1)
+    if len(args) > 0:
+      if len(args) == 1:
+        args.append('')
+      try:
+        { # cmd_name: cmd_function
+            'eval': self.cmd_eval,
+            'goto': self.cmd_goto,
+            'pixel': self.cmd_pixel,
+        }[args[0]](args[1])
+      except Exception, e:
+        print "command error: %s" % e
+    w.hide()
+    return False
+
+  def cmd_eval(self, s):
+    eval(s, globals(), {'self':self})
+
+  def cmd_goto(self, s):
+    """Go to a given image, by index."""
+    if s[0] in "+-":
+      self.change_file(int(s), True)
+    else:
+      self.change_file(int(s)-1, False)
+
+  def cmd_pixel(self, s):
+    self.redraw_pix_info( map(int, s.split()) )
 
 
 
