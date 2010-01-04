@@ -212,7 +212,7 @@ class PiewApp:
       self._files_orig = files
     self.files = set() # not doublets
     for f in self._files_orig:
-      f = os.path.normpath( unicode(f) )
+      f = unicode( os.path.normpath( unicode(f) ) )
       if os.path.isfile(f):
         self.files.add(f)
       if os.path.isdir(f):
