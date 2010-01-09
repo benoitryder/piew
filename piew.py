@@ -242,6 +242,7 @@ class PiewApp:
       except ValueError:
         f = self.files[0]
     self.load_image(f)
+    self.zoom_adjust()
 
   def load_image(self, fname):
     """Load a given image.
@@ -275,7 +276,6 @@ class PiewApp:
         fname = False
     self.cur_file = fname
     self.move()
-    self.zoom_adjust()
 
   def ani_update(self):
     """Advance animation.
@@ -634,6 +634,9 @@ class PiewApp:
       self.zoom_adjust()
     elif keyname == 'z':
       self.set_zoom(1)
+    # reload current image
+    elif keyname == 'r':
+      self.load_image(self.cur_file)
     # refresh file list
     elif keyname == 'F5':
       self.set_filelist()
