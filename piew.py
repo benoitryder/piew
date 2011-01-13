@@ -224,9 +224,10 @@ class PiewApp:
     self.files = filter(lambda f: f.split('.')[-1].lower() in self.file_exts, list(self.files))
     self.files.sort()
 
-  def change_file(self, n=0, rel=True):
+  def change_file(self, n=0, rel=True, adjust=True):
     """Change current file.
     n is the filelist position, relative to current position if rel is True.
+    If adjust is True, zoom is adjusted.
     Absolute and relative positions wrap around the bounds of the list.
     On error the first file is loaded.
     """
@@ -242,7 +243,8 @@ class PiewApp:
       except ValueError:
         f = self.files[0]
     self.load_image(f)
-    self.zoom_adjust()
+    if adjust:
+      self.zoom_adjust()
 
   def load_image(self, fname):
     """Load a given image.
@@ -258,7 +260,6 @@ class PiewApp:
       try:
         ani = gtk.gdk.PixbufAnimation(fname)
       except gobject.GError, e: # invalid format
-        print "Invalid image '%s': %s" % (fname, e)
         ani = None
       if ani is not None:
         if ani.is_static_image():
@@ -606,10 +607,26 @@ class PiewApp:
       self.quit()
     elif keyname == 'f':
       self.fullscreen()
-    elif keyname in ('space','Page_Down'):
+    elif keyname == 'Page_Down':
       self.change_file(+self.get_filelist_step(ev))
-    elif keyname in ('BackSpace','Page_Up'):
+    elif keyname == 'Page_Up':
       self.change_file(-self.get_filelist_step(ev))
+    # space, backspace: scroll pages, preserve zoom
+    elif keyname == 'space':
+      dy = float(self.w.get_size()[1])/self.zoom
+      if self.pos_y + dy/2 + 2 > self.pb.get_height():
+        self.change_file(+1, adjust=False)
+        self.move((0,0), False)
+      else:
+        self.move((0,dy))
+    elif keyname == 'BackSpace':
+      print "BACK"
+      dy = float(self.w.get_size()[1])/self.zoom
+      if self.pos_y - dy/2 - 2 < 0:
+        self.change_file(-1, adjust=False)
+        self.move((0,self.pb.get_height()), False)
+      else:
+        self.move((0,-dy))
     # arrows
     elif keyname == 'Up':
       self.move( (0,-self.get_move_step(ev)) )
