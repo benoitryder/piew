@@ -191,7 +191,13 @@ class PiewApp:
 
     self.w.add(self.layout)
     self.w.show_all()
-    self.change_file(0,False)
+    # try to start at the first provided file
+    try:
+      f = unicode( os.path.normpath( unicode(files[0]) ) )
+      findex = self.files.index(f)
+    except ValueError:
+      findex = 0
+    self.change_file(findex,False)
 
   def main(self):
     gtk.main()
@@ -217,7 +223,8 @@ class PiewApp:
         self.files.add(f)
       if os.path.isdir(f):
         for ff in sorted(os.listdir(f)):
-          ff = os.path.join(f,ff)
+          if f != '.':
+            ff = os.path.join(f,ff)
           if os.path.isfile(ff):
             self.files.add(ff)
     # convert to a list, filter, sort
@@ -233,11 +240,11 @@ class PiewApp:
     """
     if len(self.files) == 0:
       f = None
-    elif self.cur_file is None:
-      f = self.files[0]
     else:
       try:
         if rel:
+          if self.cur_file is None:
+            f = self.files[0]
           n += self.files.index(self.cur_file)
         f = self.files[ n % len(self.files) ]
       except ValueError:
@@ -260,6 +267,7 @@ class PiewApp:
       try:
         ani = gtk.gdk.PixbufAnimation(fname)
       except gobject.GError, e: # invalid format
+        print "Invalid image '%s': %s" % (fname, e)
         ani = None
       if ani is not None:
         if ani.is_static_image():
@@ -620,7 +628,6 @@ class PiewApp:
       else:
         self.move((0,dy))
     elif keyname == 'BackSpace':
-      print "BACK"
       dy = float(self.w.get_size()[1])/self.zoom
       if self.pos_y - dy/2 - 2 < 0:
         self.change_file(-1, adjust=False)
@@ -800,10 +807,27 @@ class PiewApp:
 if __name__ == '__main__':
   import optparse
   parser = optparse.OptionParser(
-      usage='usage: %prog [FILES]'
+      usage='usage: %prog [-d FILE | FILES]'
+      )
+  parser.add_option('-d', dest='dirs', action='store_true',
+      help="browse directory of provided the file")
+  parser.set_defaults(
+      dirs=False,
       )
   opts, args = parser.parse_args()
 
-  app = PiewApp(args)
+  if opts.dirs:
+    if len(args) != 1:
+      parser.error("invalid argument count with -d")
+    if not os.path.isfile(args[0]):
+      parser.error("invalid file: %s" % args[0])
+    import os
+    head, tail = os.path.split(args[0])
+    os.chdir(os.path.normpath(head))
+    files = tail, '.'
+  else:
+    files = args
+
+  app = PiewApp(files)
   app.main()
 
