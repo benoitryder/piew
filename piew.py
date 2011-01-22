@@ -5,6 +5,164 @@ import gtk, gobject
 import os, re
 
 
+class AnimWrapperBase:
+  """Wrapper interface for animations.
+
+  The following instance methods must be defined:
+    is_animated() -- return True for animated images
+    pixbuf() -- return Pixbuf of the current frame
+    advance() -- advance to the next frame
+    duration() -- current frame duration in ms, -1 for infinite
+
+  """
+
+  class LoadError(StandardError):
+    """Exception raised on loading error."""
+    pass
+
+class AnimWrapperGTK(AnimWrapperBase):
+  """Animation implementation based on GTK objects.
+
+  Instance attributes:
+    _animated -- value returned by is_animated()
+    _pb -- value returned by pixbuf()
+    _t -- current display time, always increases (anim only)
+    _it -- PixbufAnimationIter object (anim only)
+
+  """
+
+  def __init__(self, fname):
+    try:
+      ani = gtk.gdk.PixbufAnimation(fname)
+    except gobject.GError, e: # invalid format
+      raise self.LoadError(str(e))
+    self._animated = not ani.is_static_image()
+    if self._animated:
+      self._t = 1  # 0.0 is a special value, avoid it
+      self._it = ani.get_iter(self._t)
+      self._pb = self._it.get_pixbuf()
+    else:
+      self._pb = ani.get_static_image()
+
+  def is_animated(self):
+    return self._animated
+
+  def pixbuf(self):
+    return self._pb
+
+  def advance(self):
+    if not self._animated:
+      raise TypeError("cannot advance static images")
+    while True:
+      self._t += self._it.get_delay_time()/1000.
+      if not self._it.advance(self._t):
+        # frame did not changed, may occur due to rounding errors
+        continue
+      self._pb = self._it.get_pixbuf()
+      return
+
+  def duration(self):
+    if not self._animated:
+      raise TypeError("cannot advance static images")
+    return self._it.get_delay_time()
+
+class AnimWrapperPIL(AnimWrapperBase):
+  """Animation implementation based on Python Image Library.
+
+  For animations, frames are converted to Pixbuf and kept in a list.
+  Once all frames have been iterated the PIL image is released.
+
+  Instance attributes:
+    _animated -- value returned by is_animated()
+    _pb -- value returned by pixbuf()
+    _im -- PIL.Image.Image object
+    _i -- index current frame, zero-based
+    _frames -- (duration, gtk.gdk.Pixbuf) pairs of converted frames
+
+  Known limitations:
+    result is buggy for some animated GIFs.
+    transparency is not handled
+
+  NOTE: PIL.Image must have been imported as _PILImage
+
+  """
+
+  def __init__(self, fname):
+    try:
+      im = _PILImage.open(fname)
+    except IOError, e: # invalid format
+      raise self.LoadError(str(e))
+    self._animated = 'duration' in im.info
+    if self._animated:
+      self._im = im
+      self._i = None  # init
+      self._convert_next()
+      self._pb = self._frames[0][1]
+    else:
+      self._pb = self._im2pb(im)
+
+  def is_animated(self):
+    return self._animated
+
+  def pixbuf(self):
+    return self._pb
+
+  def advance(self):
+    if not self._animated:
+      raise TypeError("cannot advance static images")
+    if self._im is None:
+      self._i = (self._i+1) % len(self._frames)
+    else:
+      self._convert_next()
+    self._pb = self._frames[self._i][1]
+
+  def duration(self):
+    if not self._animated:
+      raise TypeError("cannot advance static images")
+    return self._frames[self._i][0]
+
+  @classmethod
+  def _im2pb(cls, im):
+    """Convert a PIL.Image into a gtk.gdk.Pixbuf."""
+    loader = gtk.gdk.PixbufLoader('pnm')
+    if im.mode in ('L', 'P'):
+      im = im.convert('RGB')
+    im.save(loader, 'ppm')
+    loader.close()
+    return loader.get_pixbuf()
+
+  def _convert_next(self):
+    """Convert next frame."""
+    if self._i is None:
+      self._frames = []
+      self._i = 0  # init
+    else:
+      try:
+        self._i += 1
+        self._im.seek(self._i)
+      except EOFError:
+        # end of frames, free the PIL image
+        self._im = None
+        self._i = 0
+        return
+    self._frames.append( (self._im.info['duration'], self._im2pb(self._im)) )
+
+
+# Wrappers to use for each extensions
+anim_wrappers = {
+    None: AnimWrapperGTK,  # default
+    }
+
+# Use PIL on Windows for some extensions for which built-in GTK is very slow.
+if os.name == 'nt':
+  try:
+    import PIL.Image as _PILImage
+    for ext in ('.jpeg', '.jpg', '.bmp'):
+      anim_wrappers[ext] = AnimWrapperPIL
+  except ImportError:
+    pass
+
+
 class PiewApp:
   """Piew application.
 
@@ -18,11 +176,8 @@ class PiewApp:
       The following extra attributes are set on layout:
         pos -- position of children (but img): {child:(x,y)}
     pb -- pixbuf object of the current image
-    ani -- PixbufAnimation object (None for static images)
-      The following extra attributes are set on ani:
-        it -- PixbufAnimationIter object
-        t -- current display time (always increases)
-        _task -- ID of scheduled animation update, or None
+    ani -- AnimWrapper object
+    _ani_task -- ID of scheduled animation update, or None
     zoom -- current zoom
     pos_x,pos_y -- current image position (pixel displayed at windows's center)
     files -- list of browsed files
@@ -264,21 +419,18 @@ class PiewApp:
     if fname is None:
       self.pb = self.empty_pixbuf
     else:
+      ext = os.path.splitext(fname)[1].lower()
+      if ext not in anim_wrappers:
+        ext = None
       try:
-        ani = gtk.gdk.PixbufAnimation(fname)
-      except gobject.GError, e: # invalid format
+        self.ani = anim_wrappers[ext](fname)
+      except AnimWrapper.LoadError, e: # invalid format
         print "Invalid image '%s': %s" % (fname, e)
-        ani = None
-      if ani is not None:
-        if ani.is_static_image():
-          self.ani = None
-          self.pb = ani.get_static_image()
-        else:
-          ani.t = 1  # 0.0 is a special value, don't use it
-          ani.it = ani.get_iter(ani.t)
-          ani._task = None
-          self.ani = ani
-          self.pb = self.ani.it.get_pixbuf()
+        self.ani = None
+      if self.ani is not None:
+        self.pb = self.ani.pixbuf()
+        if self.ani.is_animated():
+          self._ani_task = None
           self.ani_update()  # start animation
       else:
         self.pb = self.empty_pixbuf
@@ -292,12 +444,14 @@ class PiewApp:
     Schedule next update.
     Always returns False (to be used as gobject event callback).
     """
-    if self.ani._task is not None:
+    if self.ani is None:
+      return
+    if self._ani_task is not None:
       self.ani_next_frame()
-    t = self.ani.it.get_delay_time()
+    t = self.ani.duration()
     if t == -1:
       t = self.ani_infinite_frame_duration
-    self.ani._task = gobject.timeout_add(t, self.ani_update)
+    self._ani_task = gobject.timeout_add(t, self.ani_update)
     return False
 
 
@@ -521,7 +675,7 @@ class PiewApp:
   def ani_is_playing(self):
     if self.ani is None:
       return False
-    return self.ani._task is not None
+    return self.ani.is_animated() and self._ani_task is not None
 
   def ani_set_state(self, state=None):
     """Set animation play state.
@@ -531,28 +685,27 @@ class PiewApp:
       True -- play animation
       False -- pause animation
 
-    Current state is defined by self.ani._task.
+    Current state is defined by self._ani_task.
 
     """
-    if self.ani is None:
+    if self.ani is None or not self.ani.is_animated():
       return  # silently ignore static images
     cur_state = self.ani_is_playing()
     if state == cur_state:
       return
     # Toggle state
     if cur_state:
-      gobject.source_remove(self.ani._task)
-      self.ani._task = None
+      gobject.source_remove(self._ani_task)
+      self._ani_task = None
     else:
       self.ani_update()
 
   def ani_next_frame(self):
-    if self.ani is None:
+    if self.ani is None or not self.ani.is_animated():
       return  # silently ignore static images
-    self.ani.t += self.ani.it.get_delay_time()/1000.
-    if self.ani.it.advance(self.ani.t):
-      self.pb = self.ani.it.get_pixbuf()
-      self.redraw()
+    self.ani.advance()
+    self.pb = self.ani.pixbuf()
+    self.redraw()
 
   def get_pixel_color(self, x, y):
     """Get color of a given pixel.
@@ -810,7 +963,7 @@ if __name__ == '__main__':
       usage='usage: %prog [-d FILE | FILES]'
       )
   parser.add_option('-d', dest='dirs', action='store_true',
-      help="browse directory of provided the file")
+      help="browse directory of provided file")
   parser.set_defaults(
       dirs=False,
       )
