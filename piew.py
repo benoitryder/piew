@@ -424,7 +424,7 @@ class PiewApp:
         ext = None
       try:
         self.ani = anim_wrappers[ext](fname)
-      except AnimWrapper.LoadError, e: # invalid format
+      except AnimWrapperBase.LoadError, e: # invalid format
         print "Invalid image '%s': %s" % (fname, e)
         self.ani = None
       if self.ani is not None:
