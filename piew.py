@@ -730,6 +730,17 @@ class PiewApp:
       return (x,y)
     return None
 
+  def rotate(self, angle):
+    """Rotate the image of the given angle (in degrees)
+
+    Only multiple of 90 are supported.
+    """
+    if angle % 90 != 0:
+      raise ValueError("rotation angle not supported: %r" % angle)
+    self.pb = self.pb.rotate_simple(angle % 360)
+    self.move()
+
+
 
   # Internal events
 
@@ -811,12 +822,15 @@ class PiewApp:
       self.zoom_adjust()
     elif keyname == 'z':
       self.set_zoom(1)
-    # reload current image
+    # rotation
     elif keyname == 'r':
-      self.load_image(self.cur_file)
-    # refresh file list
+      self.rotate(-90)
+    elif keyname == 'R':
+      self.rotate(+90)
+    # refresh file list and reload current image
     elif keyname == 'F5':
       self.set_filelist()
+      self.load_image(self.cur_file)
     # animation
     elif keyname == 'p':
       self.ani_set_state()
@@ -936,6 +950,7 @@ class PiewApp:
             'eval': self.cmd_eval,
             'goto': self.cmd_goto,
             'pixel': self.cmd_pixel,
+            'rotate': self.cmd_rotate,
         }[args[0]](args[1])
       except Exception, e:
         print "command error: %s" % e
@@ -954,6 +969,9 @@ class PiewApp:
 
   def cmd_pixel(self, s):
     self.redraw_pix_info( map(int, s.split()) )
+
+  def cmd_rotate(self, s):
+    self.rotate(int(s))
 
 
 
