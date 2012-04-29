@@ -303,7 +303,7 @@ class PiewApp:
     self.pix_info = gtk.Label()
     self.pix_info.set_use_markup(True)
     self.pix_info.set_use_underline(False)
-    self.pix_info.set_markup('-')
+    self.pix_info.set_markup('')
 
     self.cmd = gtk.Entry()
     self.cmd.set_no_show_all(True)
