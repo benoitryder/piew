@@ -884,10 +884,24 @@ class PiewApp:
     return True
 
   def event_mouse_scroll(self, button, ev):
-    if ev.direction == gtk.gdk.SCROLL_UP:
-      self.zoom_in((ev.x,ev.y))
-    elif ev.direction == gtk.gdk.SCROLL_DOWN:
-      self.zoom_out((ev.x,ev.y))
+    if ev.state == 0:
+      if ev.direction == gtk.gdk.SCROLL_UP:
+        self.zoom_in((ev.x,ev.y))
+      elif ev.direction == gtk.gdk.SCROLL_DOWN:
+        self.zoom_out((ev.x,ev.y))
+      else:
+        return
+    elif ev.state == gtk.gdk.MOD1_MASK:
+      # modify background color value
+      if ev.direction == gtk.gdk.SCROLL_UP:
+        offset = -0.1
+      elif ev.direction == gtk.gdk.SCROLL_DOWN:
+        offset = 0.1
+      else:
+        return
+      color = self.w.style.bg[gtk.STATE_NORMAL]
+      color2 = gtk.gdk.color_from_hsv(color.hue, color.saturation, color.value + offset)
+      self.set_bg_color(color2)
     else:
       return
     return True
