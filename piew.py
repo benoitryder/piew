@@ -290,7 +290,7 @@ class PiewApp:
     self.w = gtk.Window(gtk.WINDOW_TOPLEVEL)
     self.w.set_title('Piew')
     self.w.set_default_size(*self.w_default_size)
-    self.w.modify_bg(gtk.STATE_NORMAL, self.bg_color)
+    self.set_bg_color(self.bg_color)
 
 
     # Layout and its elements
@@ -576,6 +576,14 @@ class PiewApp:
         lambda m: str( d[ m.group(1) ] ),
         self.pix_info_format
         )
+
+  def set_bg_color(self, color):
+    """Set background color
+    color may be either a gtk.gdk.Color or a color string
+    """
+    if not isinstance(color, gtk.gdk.Color):
+      color = gtk.gdk.Color(color)
+    self.w.modify_bg(gtk.STATE_NORMAL, color)
 
 
   # Image position, zoom, etc.
@@ -951,6 +959,7 @@ class PiewApp:
             'goto': self.cmd_goto,
             'pixel': self.cmd_pixel,
             'rotate': self.cmd_rotate,
+            'setbg': self.cmd_setbg,
         }[args[0]](args[1])
       except Exception, e:
         print "command error: %s" % e
@@ -973,6 +982,8 @@ class PiewApp:
   def cmd_rotate(self, s):
     self.rotate(int(s))
 
+  def cmd_setbg(self, s):
+    self.set_bg_color(s.strip())
 
 
 if __name__ == '__main__':
