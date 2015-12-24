@@ -155,8 +155,11 @@ class AnimWrapperPIL(AnimWrapperBase):
     self._frames.append( (self._im.info['duration'], self._im2pb(self._im)) )
 
   def exif_orientation(self):
+    exif = self._im._getexif()
+    if not exif:
+      return None
     try:
-      tags = { _PILExifTags.TAGS.get(k, k): v for k,v in self._im._getexif().items() }
+      tags = { _PILExifTags.TAGS.get(k, k): v for k,v in exif.items() }
     except ZeroDivisionError:
       return None  # workaround for Pillow bug #1492
     return tags.get('Orientation')
