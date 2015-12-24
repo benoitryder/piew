@@ -13,6 +13,7 @@ class AnimWrapperBase:
     pixbuf() -- return Pixbuf of the current frame
     advance() -- advance to the next frame
     duration() -- current frame duration in ms, -1 for infinite
+    exif_orientation() -- return EXIF orientation integer value or None
 
   """
 
@@ -66,6 +67,12 @@ class AnimWrapperGTK(AnimWrapperBase):
       raise TypeError("cannot advance static images")
     return self._it.get_delay_time()
 
+  def exif_orientation(self):
+    ret = self._pb.get_option('orientation')
+    if not ret:
+      return None
+    return int(ret)
+
 class AnimWrapperPIL(AnimWrapperBase):
   """Animation implementation based on Python Image Library.
 
@@ -93,8 +100,8 @@ class AnimWrapperPIL(AnimWrapperBase):
     except IOError, e: # invalid format
       raise self.LoadError(str(e))
     self._animated = 'duration' in im.info
+    self._im = im
     if self._animated:
-      self._im = im
       self._i = None  # init
       self._convert_next()
       self._pb = self._frames[0][1]
@@ -147,6 +154,13 @@ class AnimWrapperPIL(AnimWrapperBase):
         return
     self._frames.append( (self._im.info['duration'], self._im2pb(self._im)) )
 
+  def exif_orientation(self):
+    try:
+      tags = { _PILExifTags.TAGS.get(k, k): v for k,v in self._im._getexif().items() }
+    except ZeroDivisionError:
+      return None  # workaround for Pillow bug #1492
+    return tags.get('Orientation')
+
 
 # Wrappers to use for each extensions
 anim_wrappers = {
@@ -157,6 +171,7 @@ anim_wrappers = {
 if os.name == 'nt':
   try:
     import PIL.Image as _PILImage
+    import PIL.ExifTags as _PILExifTags
     for ext in ('.jpeg', '.jpg', '.bmp'):
       anim_wrappers[ext] = AnimWrapperPIL
   except ImportError:
@@ -436,6 +451,10 @@ class PiewApp:
         self.pb = self.empty_pixbuf
         fname = False
     self.cur_file = fname
+    if self.ani:
+      angle = { 1: 0, 3: 180, 6: -90, 8: 90 }.get(self.ani.exif_orientation())
+      if angle:
+        self.rotate(angle)
     self.move()
 
   def ani_update(self):
