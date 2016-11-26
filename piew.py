@@ -689,6 +689,22 @@ class PiewApp:
     z = min( 1, float(w_sx)/img_sx, float(w_sy)/img_sy )
     self.set_zoom( z, None )
 
+  def scroll(self, step):
+    """Scroll pages, preserve zoom
+
+    step scale is 1 for one screen height.
+    """
+
+    dy = step * float(self.w.get_size()[1]) / self.zoom
+    if dy >= 0 and self.pos_y + dy/2 + 2 > self.pb.get_height():
+      self.change_file(+1, adjust=False)
+      self.move((0,0), False)
+    elif dy < 0 and self.pos_y + dy/2 - 2 < 0:
+      self.change_file(-1, adjust=False)
+      self.move((0,self.pb.get_height()), False)
+    else:
+      self.move((0,dy))
+
   def fullscreen(self, state=None):
     """Change fullscreen state
     True/False to set, None to toggle.
@@ -821,19 +837,9 @@ class PiewApp:
       self.change_file(-self.get_filelist_step(ev))
     # space, backspace: scroll pages, preserve zoom
     elif keyname == 'space':
-      dy = float(self.w.get_size()[1])/self.zoom
-      if self.pos_y + dy/2 + 2 > self.pb.get_height():
-        self.change_file(+1, adjust=False)
-        self.move((0,0), False)
-      else:
-        self.move((0,dy))
+      self.scroll(+1)
     elif keyname == 'BackSpace':
-      dy = float(self.w.get_size()[1])/self.zoom
-      if self.pos_y - dy/2 - 2 < 0:
-        self.change_file(-1, adjust=False)
-        self.move((0,self.pb.get_height()), False)
-      else:
-        self.move((0,-dy))
+      self.scroll(-1)
     # arrows
     elif keyname == 'Up':
       self.move( (0,-self.get_move_step(ev)) )
