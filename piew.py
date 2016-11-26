@@ -1058,28 +1058,24 @@ class PiewApp:
 
 
 def main():
-    import optparse
-    parser = optparse.OptionParser(
-        usage='usage: %prog [-d FILE | FILES]'
-        )
-    parser.add_option('-d', dest='dirs', action='store_true',
-        help="browse directory of provided file")
-    parser.set_defaults(
-        dirs=False,
-        )
-    opts, args = parser.parse_args()
+    import argparse
+    parser = argparse.ArgumentParser(usage="%(prog)s [-d FILE | FILES]")
+    parser.add_argument('-d', '--directory', metavar='FILE',
+                        help="browse directory of provided file")
+    parser.add_argument('files', nargs='*',
+                        help="files to browse")
+    args = parser.parse_args()
 
-    if opts.dirs:
-        if len(args) != 1:
-            parser.error("invalid argument count with -d")
-        if not os.path.isfile(args[0]):
-            parser.error("invalid file: %s" % args[0])
-        import os
-        head, tail = os.path.split(args[0])
+    if args.directory:
+        if args.files:
+            parser.error("positional arguments and -d are incompatible")
+        if not os.path.isfile(args.directory):
+            parser.error("invalid file: %s" % args.directory)
+        head, tail = os.path.split(args.directory)
         os.chdir(os.path.normpath(head))
-        files = tail, '.'
+        files = [tail, '.']
     else:
-        files = args
+        files = args.files
 
     app = PiewApp(files)
     app.main()
