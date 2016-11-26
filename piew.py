@@ -607,6 +607,12 @@ class PiewApp:
       color = gtk.gdk.Color(color)
     self.w.modify_bg(gtk.STATE_NORMAL, color)
 
+  def set_bg_color_brigthness(self, offset):
+    """Adjust background color brigthness (value)"""
+    color = self.w.style.bg[gtk.STATE_NORMAL]
+    color2 = gtk.gdk.color_from_hsv(color.hue, color.saturation, color.value + offset)
+    self.set_bg_color(color2)
+
 
   # Image position, zoom, etc.
 
@@ -916,14 +922,11 @@ class PiewApp:
     elif ev.state == gtk.gdk.MOD1_MASK:
       # modify background color value
       if ev.direction == gtk.gdk.SCROLL_UP:
-        offset = -0.1
+        self.set_bg_color_brigthness(-0.1)
       elif ev.direction == gtk.gdk.SCROLL_DOWN:
-        offset = 0.1
+        self.set_bg_color_brigthness(+0.1)
       else:
         return
-      color = self.w.style.bg[gtk.STATE_NORMAL]
-      color2 = gtk.gdk.color_from_hsv(color.hue, color.saturation, color.value + offset)
-      self.set_bg_color(color2)
     else:
       return
     return True
