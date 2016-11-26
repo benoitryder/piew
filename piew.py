@@ -1057,7 +1057,7 @@ class PiewApp:
         self.set_bg_color(s.strip())
 
 
-if __name__ == '__main__':
+def main():
     import optparse
     parser = optparse.OptionParser(
         usage='usage: %prog [-d FILE | FILES]'
@@ -1083,4 +1083,7 @@ if __name__ == '__main__':
 
     app = PiewApp(files)
     app.main()
+
+if __name__ == '__main__':
+    main()
 
