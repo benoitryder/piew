@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # vim: fileencoding=utf-8
 
-import gtk, gobject
-import os, re
+import os
+import re
+import gtk
+import gobject
 
 
 class AnimWrapperBase:
@@ -33,7 +35,7 @@ class AnimWrapperGTK(AnimWrapperBase):
     def __init__(self, fname):
         try:
             ani = gtk.gdk.PixbufAnimation(fname)
-        except gobject.GError, e: # invalid format
+        except gobject.GError as e:  # invalid format
             raise self.LoadError(str(e))
         self._animated = not ani.is_static_image()
         if self._animated:
@@ -53,7 +55,7 @@ class AnimWrapperGTK(AnimWrapperBase):
         if not self._animated:
             raise TypeError("cannot advance static images")
         while True:
-            self._t += self._it.get_delay_time()/1000.
+            self._t += self._it.get_delay_time() / 1000.
             if not self._it.advance(self._t):
                 # frame did not changed, may occur due to rounding errors
                 continue
@@ -94,7 +96,7 @@ class AnimWrapperPIL(AnimWrapperBase):
     def __init__(self, fname):
         try:
             im = _PILImage.open(fname)
-        except IOError, e: # invalid format
+        except IOError as e:  # invalid format
             raise self.LoadError(str(e))
         self._animated = 'duration' in im.info
         self._im = im
@@ -115,7 +117,7 @@ class AnimWrapperPIL(AnimWrapperBase):
         if not self._animated:
             raise TypeError("cannot advance static images")
         if self._im is None:
-            self._i = (self._i+1) % len(self._frames)
+            self._i = (self._i + 1) % len(self._frames)
         else:
             self._convert_next()
         self._pb = self._frames[self._i][1]
@@ -149,14 +151,14 @@ class AnimWrapperPIL(AnimWrapperBase):
                 self._im = None
                 self._i = 0
                 return
-        self._frames.append( (self._im.info['duration'], self._im2pb(self._im)) )
+        self._frames.append((self._im.info['duration'], self._im2pb(self._im)))
 
     def exif_orientation(self):
         exif = self._im._getexif()
         if not exif:
             return None
         try:
-            tags = { _PILExifTags.TAGS.get(k, k): v for k,v in exif.items() }
+            tags = {_PILExifTags.TAGS.get(k, k): v for k, v in exif.items()}
         except ZeroDivisionError:
             return None  # workaround for Pillow bug #1492
         return tags.get('Orientation')
@@ -209,8 +211,8 @@ class PiewApp:
 
     # Configuration values
 
-    w_min_size = (50,50)
-    w_default_size = (800,500)
+    w_min_size = (50, 50)
+    w_default_size = (800, 500)
     default_files = [u'.']
     bg_color = gtk.gdk.color_parse('black')
 
@@ -226,7 +228,7 @@ class PiewApp:
     info_format = '<span font_desc="Sans 10" color="green">%f  ( %w x %h )  [ %n / %N ]  %z %%</span>'
     # Info label position (offset from top left corner)
     # Negative positions are relative to the opposite side.
-    info_position = (10,5)
+    info_position = (10, 5)
     # Filename substitutes for invalid files (Pango markup)
     info_txt_no_image = '<i>no file</i>'
     info_txt_bad_image = '<i>invalid file format</i>'
@@ -242,11 +244,11 @@ class PiewApp:
     pix_info_format = '<span color="magenta">( %x , %y ) <tt> <span background="#%I">  </span> #%H  <span color="red">%r</span> <span color="green">%g</span> <span color="blue">%b</span> <span color="white">%a</span></tt></span>'
     # Pixel Info label position (offset from top left corner)
     # Negative positions are relative to the opposite side.
-    pix_info_position = (10,30)
+    pix_info_position = (10, 30)
 
     # Command line position
     # Negative positions are relative to the opposite side.
-    cmd_position = (0,-1)
+    cmd_position = (0, -1)
 
     # Step (in pixels) when moving around with arrow keys
     # Keys are GDK Modifier masks (None for default value).
@@ -262,10 +264,10 @@ class PiewApp:
             }
 
     # supported extensions (cas insensitive)
-    file_exts = reduce(lambda l,f:l+f['extensions'], gtk.gdk.pixbuf_get_formats(), [] )
+    file_exts = reduce(lambda l, f: l+f['extensions'], gtk.gdk.pixbuf_get_formats(), [])
 
     # List of zoom steps when zooming in/out
-    zoom_steps = tuple(
+    zoom_steps = [
             i/100.0 for i in
             range(  15,  50,   7) +
             range(  50, 100,  10) +
@@ -274,7 +276,7 @@ class PiewApp:
             range( 600,1000, 200) +
             range(1000,2000, 500) +
             range(2000,5000,1000)
-            )
+            ]
 
     # Interpolation type
     # Typical values are:
@@ -289,7 +291,7 @@ class PiewApp:
     ani_infinite_frame_duration = 2000
 
     # Empty pixbuf (or image) for invalid files
-    empty_pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB,False,8,1,1)
+    empty_pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, False, 8, 1, 1)
     empty_pixbuf.fill(0)
 
 
@@ -335,12 +337,12 @@ class PiewApp:
                 self.pix_info: self.pix_info_position,
                 self.cmd: self.cmd_position,
                 }
-        for w,pos in self.layout.pos.items():
+        for w, pos in self.layout.pos.items():
             self.layout.put(w, *pos)
         self.layout.set_size_request(*self.w_min_size)
 
 
-        self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK|gtk.gdk.BUTTON_RELEASE_MASK|gtk.gdk.POINTER_MOTION_MASK)
+        self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK | gtk.gdk.POINTER_MOTION_MASK)
         self.w.connect('destroy', self.quit)
         self.w.connect('size-allocate', self.event_resize)
         self.w.connect('key-press-event', self.event_kb_press)
@@ -354,7 +356,7 @@ class PiewApp:
         self._fullscreen = None
         self._mouse_x, self._mouse_y = 0, 0
         self._drag_x, self._drag_y = None, None
-        self._last_w_s = (0,0) # force resize event to occur at startup
+        self._last_w_s = 0, 0  # force resize event to occur at startup
         self.pos_x, self.pos_y = 0, 0
         self.zoom = 1
 
@@ -362,11 +364,11 @@ class PiewApp:
         self.w.show_all()
         # try to start at the first provided file
         try:
-            f = unicode( os.path.normpath( unicode(files[0]) ) )
+            f = unicode(os.path.normpath(unicode(files[0])))
             findex = self.files.index(f)
         except ValueError:
             findex = 0
-        self.change_file(findex,False)
+        self.change_file(findex, False)
 
     def main(self):
         gtk.main()
@@ -389,18 +391,17 @@ class PiewApp:
             self._files_orig = files
         self.files = set() # not doublets
         for f in self._files_orig:
-            f = unicode( os.path.normpath( unicode(f) ) )
+            f = unicode(os.path.normpath(unicode(f)))
             if os.path.isfile(f):
                 self.files.add(f)
             if os.path.isdir(f):
                 for ff in sorted(os.listdir(f)):
                     if f != '.':
-                        ff = os.path.join(f,ff)
+                        ff = os.path.join(f, ff)
                     if os.path.isfile(ff):
                         self.files.add(ff)
         # convert to a list, filter, sort
-        self.files = filter(lambda f: f.split('.')[-1].lower() in self.file_exts, list(self.files))
-        self.files.sort()
+        self.files = sorted(f for f in self.files if f.split('.')[-1].lower() in self.file_exts)
 
     def change_file(self, n=0, rel=True, adjust=True):
         """Change current file.
@@ -419,7 +420,7 @@ class PiewApp:
                     if self.cur_file is None:
                         f = self.files[0]
                     n += self.files.index(self.cur_file)
-                f = self.files[ n % len(self.files) ]
+                f = self.files[n % len(self.files)]
             except ValueError:
                 f = self.files[0]
         self.load_image(f)
@@ -444,7 +445,7 @@ class PiewApp:
                 ext = None
             try:
                 self.ani = anim_wrappers[ext](fname)
-            except AnimWrapperBase.LoadError, e: # invalid format
+            except AnimWrapperBase.LoadError as e:  # invalid format
                 print "Invalid image '%s': %s" % (fname, e)
                 self.ani = None
             if self.ani is not None:
@@ -457,7 +458,7 @@ class PiewApp:
                 fname = False
         self.cur_file = fname
         if self.ani:
-            angle = { 1: 0, 3: 180, 6: -90, 8: 90 }.get(self.ani.exif_orientation())
+            angle = {1: 0, 3: 180, 6: -90, 8: 90}.get(self.ani.exif_orientation())
             if angle:
                 self.rotate(angle)
         self.move()
@@ -502,8 +503,8 @@ class PiewApp:
 
         src_sx, src_sy = w_sx/self.zoom, w_sy/self.zoom
         if src_sx < img_sx or src_sy < img_sy:
-            src_x = max(0,int(self.pos_x-src_sx/2))
-            src_y = max(0,int(self.pos_y-src_sy/2))
+            src_x = max(0, int(self.pos_x-src_sx/2))
+            src_y = max(0, int(self.pos_y-src_sy/2))
             pb = pb.subpixbuf(
                     src_x, src_y,
                     int(min(src_sx, img_sx-src_x)),
@@ -533,7 +534,7 @@ class PiewApp:
     def redraw_info(self):
         """Redraw image info."""
 
-        self.info.set_markup( self.format_info() )
+        self.info.set_markup(self.format_info())
 
     def format_info(self):
         """Return Pango markup for self.info."""
@@ -552,7 +553,7 @@ class PiewApp:
         elif self.cur_file is False:
             d['f'] = self.info_txt_bad_image
         else:
-            d['f'] = gobject.markup_escape_text( self.cur_file )
+            d['f'] = gobject.markup_escape_text(self.cur_file)
         # File position
         try:
             d['n'] = self.files.index(self.cur_file) + 1
@@ -560,11 +561,9 @@ class PiewApp:
             d['n'] = '?'
 
         # Format
-        return re.sub(
-                '%(['+''.join(d.keys())+'])',
-                lambda m: str( d[ m.group(1) ] ),
-                self.info_format
-                )
+        return re.sub('%(['+''.join(d.keys())+'])',
+                      lambda m: str(d[m.group(1)]),
+                      self.info_format)
 
     def redraw_pix_info(self, pos=None):
         """Redraw pixel info."""
@@ -573,7 +572,7 @@ class PiewApp:
         if s is None:
             self.pix_info.hide()
         else:
-            self.pix_info.set_markup( s )
+            self.pix_info.set_markup(s)
             self.pix_info.show()
 
     def format_pix_info(self, pos=None):
@@ -596,19 +595,17 @@ class PiewApp:
                 'r': colors[0],
                 'g': colors[1],
                 'b': colors[2],
-                'a': '' if len(colors)<4 else colors[3],
-                'h': ''.join( '%02x'%c for c in colors ),
-                'H': ''.join( '%02X'%c for c in colors ),
-                'i': ''.join( '%02x'%c for c in colors[:3] ),
-                'I': ''.join( '%02X'%c for c in colors[:3] ),
+                'a': '' if len(colors) < 4 else colors[3],
+                'h': ''.join('%02x' % c for c in colors),
+                'H': ''.join('%02X' % c for c in colors),
+                'i': ''.join('%02x' % c for c in colors[:3]),
+                'I': ''.join('%02X' % c for c in colors[:3]),
                 '%': '%',
                 }
         # Format
-        return re.sub(
-                '%(['+''.join(d.keys())+'])',
-                lambda m: str( d[ m.group(1) ] ),
-                self.pix_info_format
-                )
+        return re.sub('%(['+''.join(d.keys())+'])',
+                      lambda m: str(d[m.group(1)]),
+                      self.pix_info_format)
 
     def set_bg_color(self, color):
         """Set background color
@@ -639,19 +636,25 @@ class PiewApp:
         w_sx, w_sy = self.w.get_size()
         img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
         if pos is None:
-            x,y = img_sx/2,img_sy/2
+            x, y = img_sx/2, img_sy/2
         elif rel:
-            x,y = pos[0]+self.pos_x , pos[1]+self.pos_y
+            x, y = pos[0] + self.pos_x, pos[1] + self.pos_y
         else:
-            x,y = pos
+            x, y = pos
         # clamp and center
         dst_sx, dst_sy = float(w_sx)/self.zoom, float(w_sy)/self.zoom
-        if img_sx <= dst_sx: x = img_sx/2
-        elif x < dst_sx/2: x = dst_sx/2
-        else: x = min(x, img_sx - dst_sx/2 - 1)
-        if img_sy <= dst_sy: y = img_sy/2
-        elif y < dst_sy/2: y = dst_sy/2
-        else: y = min(y, img_sy - dst_sy/2 - 1)
+        if img_sx <= dst_sx:
+            x = img_sx/2
+        elif x < dst_sx/2:
+            x = dst_sx/2
+        else:
+            x = min(x, img_sx - dst_sx/2 - 1)
+        if img_sy <= dst_sy:
+            y = img_sy/2
+        elif y < dst_sy/2:
+            y = dst_sy/2
+        else:
+            y = min(y, img_sy - dst_sy/2 - 1)
 
         self.pos_x, self.pos_y = x, y
         self.refresh()
@@ -667,12 +670,10 @@ class PiewApp:
             z += self.zoom
         assert 0.001 < z < 1000, "invalid zoom factor: %f" % z
 
-        img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
-        w_sx, w_sy = self.w.get_size()
-
         if center is None:
             c_x, c_y = 0, 0
         else:
+            w_sx, w_sy = self.w.get_size()
             c_x, c_y = center[0]-w_sx/2, center[1]-w_sy/2
         # Center
         # pos+c/z = pos'+c/z'
@@ -682,7 +683,7 @@ class PiewApp:
         pos_y = self.pos_y + c_y * zk
 
         self.zoom = z
-        self.move( (pos_x,pos_y), False)
+        self.move((pos_x, pos_y), False)
 
     def zoom_in(self, center=None):
         for z in self.zoom_steps:
@@ -691,7 +692,7 @@ class PiewApp:
         return # do nothing
 
     def zoom_out(self, center=None):
-        l = list(self.zoom_steps)
+        l = list(self.zoom_steps)  # copy
         l.reverse()
         for z in l:
             if z < self.zoom:
@@ -703,8 +704,8 @@ class PiewApp:
 
         w_sx, w_sy = self.w.get_size()
         img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
-        z = min( 1, float(w_sx)/img_sx, float(w_sy)/img_sy )
-        self.set_zoom( z, None )
+        z = min(1, float(w_sx)/img_sx, float(w_sy)/img_sy)
+        self.set_zoom(z, None)
 
     def scroll(self, step):
         """Scroll pages, preserve zoom
@@ -715,12 +716,12 @@ class PiewApp:
         dy = step * float(self.w.get_size()[1]) / self.zoom
         if dy >= 0 and self.pos_y + dy/2 + 2 > self.pb.get_height():
             self.change_file(+1, adjust=False)
-            self.move((0,0), False)
+            self.move((0, 0), False)
         elif dy < 0 and self.pos_y + dy/2 - 2 < 0:
             self.change_file(-1, adjust=False)
-            self.move((0,self.pb.get_height()), False)
+            self.move((0, self.pb.get_height()), False)
         else:
-            self.move((0,dy))
+            self.move((0, dy))
 
     def fullscreen(self, state=None):
         """Change fullscreen state
@@ -787,9 +788,9 @@ class PiewApp:
 
         # Get a pixbuf with a single pixel
         # This avoid to retrieve the whole image data with get_pixels()
-        pb = self.pb.subpixbuf(x,y,1,1)
+        pb = self.pb.subpixbuf(x, y, 1, 1)
         n = pb.get_n_channels()
-        return tuple( ord(c) for c in pb.get_pixels()[0:n] )
+        return tuple(ord(c) for c in pb.get_pixels()[0:n])
 
     def get_cursor_pixel(self):
         """Get position of pixel under the cursor.
@@ -800,10 +801,10 @@ class PiewApp:
 
         img_sx, img_sy = self.pb.get_width(), self.pb.get_height()
         w_sx, w_sy = self.w.get_size()
-        x = int(round( float(self._mouse_x-w_sx/2)/self.zoom + self.pos_x ))
-        y = int(round( float(self._mouse_y-w_sy/2)/self.zoom + self.pos_y ))
+        x = int(round(float(self._mouse_x - w_sx/2) / self.zoom + self.pos_x))
+        y = int(round(float(self._mouse_y - w_sy/2) / self.zoom + self.pos_y))
         if 0 <= x < img_sx and 0 <= y < img_sy:
-            return (x,y)
+            return (x, y)
         return None
 
     def rotate(self, angle):
@@ -825,9 +826,10 @@ class PiewApp:
         if self._last_w_s != self.w.get_size():
             self._last_w_s = self.w.get_size()
             # repositionate layout elements
-            for w,pos in self.layout.pos.items():
-                if pos[0] >= 0 and pos[1] >= 0: continue
-                x,y = pos
+            for w, pos in self.layout.pos.items():
+                if pos[0] >= 0 and pos[1] >= 0:
+                    continue
+                x, y = pos
                 if x < 0:
                     x += self._last_w_s[0] - w.get_allocation().width
                 if y < 0:
@@ -852,7 +854,7 @@ class PiewApp:
                 self.cmd.hide()
             return False
 
-        if keyname in ('q','Escape'):
+        if keyname in ('q', 'Escape'):
             self.quit()
         elif keyname == 'f':
             self.fullscreen()
@@ -867,19 +869,19 @@ class PiewApp:
             self.scroll(-1)
         # arrows
         elif keyname == 'Up':
-            self.move( (0,-self.get_move_step(ev)) )
+            self.move((0, -self.get_move_step(ev)))
         elif keyname == 'Down':
-            self.move( (0,+self.get_move_step(ev)) )
+            self.move((0, +self.get_move_step(ev)))
         elif keyname == 'Left':
             if self.is_adjusted():
                 self.change_file(-self.get_filelist_step(ev))
             else:
-                self.move( (-self.get_move_step(ev),0) )
+                self.move((-self.get_move_step(ev), 0))
         elif keyname == 'Right':
             if self.is_adjusted():
                 self.change_file(+self.get_filelist_step(ev))
             else:
-                self.move( (+self.get_move_step(ev),0) )
+                self.move((+self.get_move_step(ev), 0))
         # zoom
         elif keyname == 'plus':
             self.zoom_in()
@@ -923,7 +925,7 @@ class PiewApp:
                 del_f = self.cur_file
                 try:
                     os.remove(del_f)
-                except OSError, e:
+                except OSError as e:
                     print "Cannot delete '%s': %s" % (self.cur_file, e)
                     return True
                 # update filelist and current image
@@ -933,21 +935,21 @@ class PiewApp:
                     self.load_image(None)
                 else:
                     self.change_file(+1)
-                    try: # just in case, it's safer
+                    try:  # just in case, it's safer
                         self.files.remove(del_f)
-                    except:
+                    except Exception:
                         pass
 
-        else: # not processed
+        else:  # not processed
             return False
         return True
 
     def event_mouse_scroll(self, button, ev):
         if ev.state == 0:
             if ev.direction == gtk.gdk.SCROLL_UP:
-                self.zoom_in((ev.x,ev.y))
+                self.zoom_in((ev.x, ev.y))
             elif ev.direction == gtk.gdk.SCROLL_DOWN:
-                self.zoom_out((ev.x,ev.y))
+                self.zoom_out((ev.x, ev.y))
             else:
                 return
         elif ev.state == gtk.gdk.MOD1_MASK:
@@ -964,9 +966,9 @@ class PiewApp:
 
     def event_motion_notify(self, w, ev):
         self._mouse_x, self._mouse_y = ev.x, ev.y
-        if ev.state&gtk.gdk.CONTROL_MASK:
+        if ev.state & gtk.gdk.CONTROL_MASK:
             self.redraw_pix_info()
-        if not ev.state&gtk.gdk.BUTTON1_MASK:
+        if not ev.state & gtk.gdk.BUTTON1_MASK:
             return
         if self._drag_x is None:
             self._drag_x, self._drag_y = ev.x, ev.y
@@ -979,14 +981,14 @@ class PiewApp:
 
     def event_button_press(self, w, ev):
         if ev.button == 1:
-            self._drag_x, self._drag_y = None,None
+            self._drag_x, self._drag_y = None, None
             return True
 
     def event_button_release(self, w, ev):
         if self._drag_x is not None:
             return False
         if ev.button == 1:
-            if ev.state&gtk.gdk.CONTROL_MASK:
+            if ev.state & gtk.gdk.CONTROL_MASK:
                 self.redraw_pix_info()
                 return True
             self.change_file(-1)
@@ -1014,12 +1016,12 @@ class PiewApp:
         self.cmd.set_text(txt)
         self.cmd.show()
         # when hidding, cmd has no height, force resize
-        self._last_w_s = (0,0)
+        self._last_w_s = 0, 0
         self.cmd.grab_focus()
         self.cmd.set_position(-1)
 
     def event_cmd_activate(self, w):
-        args = self.cmd.get_text().split(None,1)
+        args = self.cmd.get_text().split(None, 1)
         if len(args) > 0:
             if len(args) == 1:
                 args.append('')
@@ -1032,13 +1034,13 @@ class PiewApp:
                         'rotate': self.cmd_rotate,
                         'setbg': self.cmd_setbg,
                 }[args[0]](args[1])
-            except Exception, e:
+            except Exception as e:
                 print "command error: %s" % e
         w.hide()
         return False
 
     def cmd_eval(self, s):
-        eval(s, globals(), {'self':self})
+        eval(s, globals(), {'self': self})
 
     def cmd_goto(self, s):
         """Go to a given image, by index."""
@@ -1048,7 +1050,7 @@ class PiewApp:
             self.change_file(int(s)-1, False)
 
     def cmd_pixel(self, s):
-        self.redraw_pix_info( map(int, s.split()) )
+        self.redraw_pix_info(map(int, s.split()))
 
     def cmd_rotate(self, s):
         self.rotate(int(s))
