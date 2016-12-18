@@ -77,111 +77,11 @@ class AnimWrapperGTK(AnimWrapperBase):
             return None
         return int(ret)
 
-class AnimWrapperPIL(AnimWrapperBase):
-    """Animation implementation based on Python Image Library.
-
-    For animations, frames are converted to Pixbuf and kept in a list.
-    Once all frames have been iterated the PIL image is released.
-
-    Instance attributes:
-      _animated -- value returned by is_animated()
-      _pb -- value returned by pixbuf()
-      _im -- PIL.Image.Image object
-      _i -- index current frame, zero-based
-      _frames -- (duration, gtk.gdk.Pixbuf) pairs of converted frames
-
-    Known limitations:
-      result is buggy for some animated GIFs.
-      transparency is not handled
-
-    NOTE: PIL.Image must have been imported as _PILImage
-    """
-
-    def __init__(self, fname):
-        try:
-            im = _PILImage.open(fname)
-        except IOError as e:  # invalid format
-            raise self.LoadError(str(e))
-        self._animated = 'duration' in im.info
-        self._im = im
-        if self._animated:
-            self._i = None  # init
-            self._convert_next()
-            self._pb = self._frames[0][1]
-        else:
-            self._pb = self._im2pb(im)
-
-    def is_animated(self):
-        return self._animated
-
-    def pixbuf(self):
-        return self._pb
-
-    def advance(self):
-        if not self._animated:
-            raise TypeError("cannot advance static images")
-        if self._im is None:
-            self._i = (self._i + 1) % len(self._frames)
-        else:
-            self._convert_next()
-        self._pb = self._frames[self._i][1]
-
-    def duration(self):
-        if not self._animated:
-            raise TypeError("cannot advance static images")
-        return self._frames[self._i][0]
-
-    @classmethod
-    def _im2pb(cls, im):
-        """Convert a PIL.Image into a gtk.gdk.Pixbuf."""
-        loader = gtk.gdk.PixbufLoader('pnm')
-        if im.mode in ('L', 'P'):
-            im = im.convert('RGB')
-        im.save(loader, 'ppm')
-        loader.close()
-        return loader.get_pixbuf()
-
-    def _convert_next(self):
-        """Convert next frame."""
-        if self._i is None:
-            self._frames = []
-            self._i = 0  # init
-        else:
-            try:
-                self._i += 1
-                self._im.seek(self._i)
-            except EOFError:
-                # end of frames, free the PIL image
-                self._im = None
-                self._i = 0
-                return
-        self._frames.append((self._im.info['duration'], self._im2pb(self._im)))
-
-    def exif_orientation(self):
-        exif = self._im._getexif()
-        if not exif:
-            return None
-        try:
-            tags = {_PILExifTags.TAGS.get(k, k): v for k, v in exif.items()}
-        except ZeroDivisionError:
-            return None  # workaround for Pillow bug #1492
-        return tags.get('Orientation')
-
 
 # Wrappers to use for each extensions
 anim_wrappers = {
         None: AnimWrapperGTK,  # default
         }
-
-# Use PIL on Windows for some extensions for which built-in GTK is very slow.
-if os.name == 'nt':
-    try:
-        import PIL.Image as _PILImage
-        import PIL.ExifTags as _PILExifTags
-        for ext in ('.jpeg', '.jpg', '.bmp'):
-            anim_wrappers[ext] = AnimWrapperPIL
-    except ImportError:
-        pass
 
 
 class PiewApp:
