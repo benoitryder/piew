@@ -3,8 +3,12 @@
 
 import os
 import re
+from gi import pygtkcompat
+pygtkcompat.enable()
+pygtkcompat.enable_gtk(version='3.0')
 import gtk
 import gobject
+import gi
 
 
 class AnimWrapperBase:
@@ -34,7 +38,7 @@ class AnimWrapperGTK(AnimWrapperBase):
 
     def __init__(self, fname):
         try:
-            ani = gtk.gdk.PixbufAnimation(fname)
+            ani = gi.repository.GdkPixbuf.PixbufAnimation.new_from_file(fname)
         except gobject.GError as e:  # invalid format
             raise self.LoadError(str(e))
         self._animated = not ani.is_static_image()
@@ -292,7 +296,7 @@ class PiewApp:
     ani_infinite_frame_duration = 2000
 
     # Empty pixbuf (or image) for invalid files
-    empty_pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, False, 8, 1, 1)
+    empty_pixbuf = gtk.gdk.Pixbuf.new(gtk.gdk.COLORSPACE_RGB, False, 8, 1, 1)
     empty_pixbuf.fill(0)
 
 
@@ -343,7 +347,7 @@ class PiewApp:
         self.layout.set_size_request(*self.w_min_size)
 
 
-        self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK | gtk.gdk.POINTER_MOTION_MASK)
+        self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK | gtk.gdk.POINTER_MOTION_MASK | gtk.gdk.SCROLL_MASK)
         self.w.connect('destroy', self.quit)
         self.w.connect('size-allocate', self.event_resize)
         self.w.connect('key-press-event', self.event_kb_press)
@@ -508,7 +512,7 @@ class PiewApp:
         if src_sx < img_sx or src_sy < img_sy:
             src_x = max(0, int(self.pos_x-src_sx/2))
             src_y = max(0, int(self.pos_y-src_sy/2))
-            pb = pb.subpixbuf(
+            pb = pb.new_subpixbuf(
                     src_x, src_y,
                     int(min(src_sx, img_sx-src_x)),
                     int(min(src_sy, img_sy-src_y))
@@ -617,14 +621,16 @@ class PiewApp:
         """
 
         if not isinstance(color, gtk.gdk.Color):
-            color = gtk.gdk.Color(color)
+            valid, color = gtk.gdk.Color.parse(color)
+            if not valid:
+                raise ValueError("invalid color string")
         self.w.modify_bg(gtk.STATE_NORMAL, color)
 
     def set_bg_color_brigthness(self, offset):
         """Adjust background color brigthness (value)"""
-        color = self.w.style.bg[gtk.STATE_NORMAL]
-        color2 = gtk.gdk.color_from_hsv(color.hue, color.saturation, color.value + offset)
-        self.set_bg_color(color2)
+        rgb = self.w.get_style_context().get_background_color(gtk.STATE_NORMAL).to_color().to_floats()
+        rgb = [max(0, min(1, v + offset)) for v in rgb]
+        self.set_bg_color(gtk.gdk.Color.from_floats(*rgb))
 
 
     # Image position, zoom, etc.
@@ -791,7 +797,7 @@ class PiewApp:
 
         # Get a pixbuf with a single pixel
         # This avoid to retrieve the whole image data with get_pixels()
-        pb = self.pb.subpixbuf(x, y, 1, 1)
+        pb = self.pb.new_subpixbuf(x, y, 1, 1)
         n = pb.get_n_channels()
         return tuple(ord(c) for c in pb.get_pixels()[0:n])
 
