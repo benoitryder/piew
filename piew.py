@@ -215,7 +215,7 @@ class PiewApp:
     w_default_size = (800, 500)
     default_files = [u'.']
     bg_color = gtk.gdk.color_parse('black')
-    start_fullscreen = True
+    start_fullscreen = False
 
     # Format of info label, with Pango markup
     # The following characters are recognized:
