@@ -3,12 +3,9 @@
 
 import os
 import re
-from gi import pygtkcompat
-pygtkcompat.enable()
-pygtkcompat.enable_gtk(version='3.0')
-import gtk
-import gobject
 import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import GLib, Gtk, Gdk, GdkPixbuf
 
 
 class AnimWrapperBase:
@@ -38,8 +35,8 @@ class AnimWrapperGTK(AnimWrapperBase):
 
     def __init__(self, fname):
         try:
-            ani = gi.repository.GdkPixbuf.PixbufAnimation.new_from_file(fname)
-        except gobject.GError as e:  # invalid format
+            ani = GdkPixbuf.PixbufAnimation.new_from_file(fname)
+        except GLib.Error as e:  # invalid format
             raise self.LoadError(str(e))
         self._animated = not ani.is_static_image()
         if self._animated:
@@ -118,7 +115,7 @@ class PiewApp:
     w_min_size = (50, 50)
     w_default_size = (800, 500)
     default_files = [u'.']
-    bg_color = gtk.gdk.color_parse('black')
+    bg_color = Gdk.color_parse('black')
     start_fullscreen = False
 
     # Format of info label, with Pango markup
@@ -159,17 +156,17 @@ class PiewApp:
     # Keys are GDK Modifier masks (None for default value).
     move_step = {
             None: 50,
-            gtk.gdk.MOD1_MASK: 10,
-            gtk.gdk.SHIFT_MASK: 500,
+            Gdk.ModifierType.MOD1_MASK: 10,
+            Gdk.ModifierType.SHIFT_MASK: 500,
             }
     # Step when moving through filelist.
     filelist_step = {
             None: 1,
-            gtk.gdk.SHIFT_MASK: 5,
+            Gdk.ModifierType.SHIFT_MASK: 5,
             }
 
     # supported extensions (cas insensitive)
-    file_exts = reduce(lambda l, f: l+f['extensions'], gtk.gdk.pixbuf_get_formats(), [])
+    file_exts = reduce(lambda l, f: l + f.get_extensions(), GdkPixbuf.Pixbuf.get_formats(), [])
 
     # List of zoom steps when zooming in/out
     zoom_steps = [
@@ -185,10 +182,10 @@ class PiewApp:
 
     # Interpolation type
     # Typical values are:
-    #   gtk.gdk.INTERP_NEAREST   fast, low quality
-    #   gtk.gdk.INTERP_BILINEAR  best quality/speed balance
-    #interp_type = gtk.gdk.INTERP_NEAREST
-    interp_type = gtk.gdk.INTERP_BILINEAR
+    #   NEAREST   fast, low quality
+    #   BILINEAR  best quality/speed balance
+    #interp_type = GdkPixbuf.InterpType.NEAREST
+    interp_type = GdkPixbuf.InterpType.BILINEAR
 
     # Frame duration of infinite frames (in ms)
     # Animation could stop at the last frame (without looping).
@@ -196,7 +193,7 @@ class PiewApp:
     ani_infinite_frame_duration = 2000
 
     # Empty pixbuf (or image) for invalid files
-    empty_pixbuf = gtk.gdk.Pixbuf.new(gtk.gdk.COLORSPACE_RGB, False, 8, 1, 1)
+    empty_pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 1, 1)
     empty_pixbuf.fill(0)
 
 
@@ -208,29 +205,29 @@ class PiewApp:
             files = self.default_files
         self.set_filelist(files)
 
-        self.w = gtk.Window(gtk.WINDOW_TOPLEVEL)
+        self.w = Gtk.Window(Gtk.WindowType.TOPLEVEL)
         self.w.set_title('Piew')
         self.w.set_default_size(*self.w_default_size)
         self.set_bg_color(self.bg_color)
 
 
         # Layout and its elements
-        self.layout = gtk.Fixed()
+        self.layout = Gtk.Fixed()
 
-        self.info = gtk.Label()
+        self.info = Gtk.Label()
         self.info.set_use_markup(True)
         self.info.set_use_underline(False)
         self.info.set_markup('-')
-        self.pix_info = gtk.Label()
+        self.pix_info = Gtk.Label()
         self.pix_info.set_use_markup(True)
         self.pix_info.set_use_underline(False)
         self.pix_info.set_markup('')
 
-        self.cmd = gtk.Entry()
+        self.cmd = Gtk.Entry()
         self.cmd.set_no_show_all(True)
         self.cmd.connect('activate', self.event_cmd_activate)
 
-        self.img = gtk.Image()
+        self.img = Gtk.Image()
         self.pb = self.empty_pixbuf
         self.ani = None
         self.img.set_from_pixbuf(self.pb)
@@ -247,7 +244,7 @@ class PiewApp:
         self.layout.set_size_request(*self.w_min_size)
 
 
-        self.w.add_events(gtk.gdk.BUTTON_PRESS_MASK | gtk.gdk.BUTTON_RELEASE_MASK | gtk.gdk.POINTER_MOTION_MASK | gtk.gdk.SCROLL_MASK)
+        self.w.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK)
         self.w.connect('destroy', self.quit)
         self.w.connect('size-allocate', self.event_resize)
         self.w.connect('key-press-event', self.event_kb_press)
@@ -278,10 +275,10 @@ class PiewApp:
         self.change_file(findex, False)
 
     def main(self):
-        gtk.main()
+        Gtk.main()
 
     def quit(self, *args):
-        gtk.main_quit()
+        Gtk.main_quit()
 
 
     # File related methods
@@ -375,7 +372,7 @@ class PiewApp:
 
         If a task has been defined, animation is advanced to the next frame.
         Schedule next update.
-        Always returns False (to be used as gobject event callback).
+        Always returns False (to be used as glib event callback).
         """
 
         if self.ani is None:
@@ -385,7 +382,7 @@ class PiewApp:
         t = self.ani.duration()
         if t == -1:
             t = self.ani_infinite_frame_duration
-        self._ani_task = gobject.timeout_add(t, self.ani_update)
+        self._ani_task = GLib.timeout_add(t, self.ani_update)
         return False
 
 
@@ -396,12 +393,12 @@ class PiewApp:
 
         if self._redraw_task is not None:
             return
-        self._redraw_task = gobject.idle_add(self.redraw)
+        self._redraw_task = GLib.idle_add(self.redraw)
 
     def redraw(self):
         """Redraw the image.
 
-        Always returns False (to be used as gobject event callback).
+        Always returns False (to be used as glib event callback).
         """
 
         w_sx, w_sy = self.w.get_size()
@@ -460,7 +457,7 @@ class PiewApp:
         elif self.cur_file is False:
             d['f'] = self.info_txt_bad_image
         else:
-            d['f'] = gobject.markup_escape_text(self.cur_file)
+            d['f'] = GLib.markup_escape_text(self.cur_file)
         # File position
         try:
             d['n'] = self.files.index(self.cur_file) + 1
@@ -517,20 +514,20 @@ class PiewApp:
     def set_bg_color(self, color):
         """Set background color
 
-        color may be either a gtk.gdk.Color or a color string
+        color may be either a Gdk.Color or a color string
         """
 
-        if not isinstance(color, gtk.gdk.Color):
-            valid, color = gtk.gdk.Color.parse(color)
+        if not isinstance(color, Gdk.Color):
+            valid, color = Gdk.Color.parse(color)
             if not valid:
                 raise ValueError("invalid color string")
-        self.w.modify_bg(gtk.STATE_NORMAL, color)
+        self.w.modify_bg(Gtk.StateFlags.NORMAL, color)
 
     def set_bg_color_brigthness(self, offset):
         """Adjust background color brigthness (value)"""
-        rgb = self.w.get_style_context().get_background_color(gtk.STATE_NORMAL).to_color().to_floats()
+        rgb = self.w.get_style_context().get_background_color(Gtk.StateFlags.NORMAL).to_color().to_floats()
         rgb = [max(0, min(1, v + offset)) for v in rgb]
-        self.set_bg_color(gtk.gdk.Color.from_floats(*rgb))
+        self.set_bg_color(Gdk.Color.from_floats(*rgb))
 
 
     # Image position, zoom, etc.
@@ -677,7 +674,7 @@ class PiewApp:
             return
         # Toggle state
         if cur_state:
-            gobject.source_remove(self._ani_task)
+            GLib.source_remove(self._ani_task)
             self._ani_task = None
         else:
             self.ani_update()
@@ -748,7 +745,7 @@ class PiewApp:
         return True
 
     def event_window_state(self, w, ev):
-        self._fullscreen = (ev.new_window_state & gtk.gdk.WINDOW_STATE_FULLSCREEN) != 0
+        self._fullscreen = (ev.new_window_state & Gdk.WindowState.FULLSCREEN) != 0
         return True
 
 
@@ -757,7 +754,7 @@ class PiewApp:
     # (And don't forget to update flags in w.add_events() call if needed!)
 
     def event_kb_press(self, w, ev):
-        keyname = gtk.gdk.keyval_name(ev.keyval)
+        keyname = Gdk.keyval_name(ev.keyval)
         if self.cmd.is_focus():
             if keyname == 'Escape':
                 self.cmd.hide()
@@ -822,14 +819,14 @@ class PiewApp:
 
         # delete file (ask for confirmation)
         elif keyname == 'Delete' and self.cur_file:
-            dlg = gtk.MessageDialog(self.w, gtk.DIALOG_MODAL,
-                    gtk.MESSAGE_QUESTION, gtk.BUTTONS_OK_CANCEL
+            dlg = Gtk.MessageDialog(self.w, Gtk.DialogFlags.MODAL,
+                    Gtk.MessageType.QUESTION, Gtk.ButtonsType.OK_CANCEL
                     )
             dlg.set_title("Piew, delete file")
-            dlg.set_markup("Deleting '%s'.\nAre your sure?" % gobject.markup_escape_text(self.cur_file))
+            dlg.set_markup("Deleting '%s'.\nAre your sure?" % GLib.markup_escape_text(self.cur_file))
             ret = dlg.run()
             dlg.destroy()
-            if ret == gtk.RESPONSE_OK:
+            if ret == Gtk.ResponseType.OK:
                 # remove file
                 del_f = self.cur_file
                 try:
@@ -855,17 +852,17 @@ class PiewApp:
 
     def event_mouse_scroll(self, button, ev):
         if ev.state == 0:
-            if ev.direction == gtk.gdk.SCROLL_UP:
+            if ev.direction == Gdk.ScrollDirection.UP:
                 self.zoom_in((ev.x, ev.y))
-            elif ev.direction == gtk.gdk.SCROLL_DOWN:
+            elif ev.direction == Gdk.ScrollDirection.DOWN:
                 self.zoom_out((ev.x, ev.y))
             else:
                 return
-        elif ev.state == gtk.gdk.MOD1_MASK:
+        elif ev.state == Gdk.ModifierType.MOD1_MASK:
             # modify background color value
-            if ev.direction == gtk.gdk.SCROLL_UP:
+            if ev.direction == Gdk.ScrollDirection.UP:
                 self.set_bg_color_brigthness(-0.1)
-            elif ev.direction == gtk.gdk.SCROLL_DOWN:
+            elif ev.direction == Gdk.ScrollDirection.DOWN:
                 self.set_bg_color_brigthness(+0.1)
             else:
                 return
@@ -875,9 +872,9 @@ class PiewApp:
 
     def event_motion_notify(self, w, ev):
         self._mouse_x, self._mouse_y = ev.x, ev.y
-        if ev.state & gtk.gdk.CONTROL_MASK:
+        if ev.state & Gdk.ModifierType.CONTROL_MASK:
             self.redraw_pix_info()
-        if not ev.state & gtk.gdk.BUTTON1_MASK:
+        if not ev.state & Gdk.ModifierType.BUTTON1_MASK:
             return
         if self._drag_x is None:
             self._drag_x, self._drag_y = ev.x, ev.y
@@ -897,7 +894,7 @@ class PiewApp:
         if self._drag_x is not None:
             return False
         if ev.button == 1:
-            if ev.state & gtk.gdk.CONTROL_MASK:
+            if ev.state & Gdk.ModifierType.CONTROL_MASK:
                 self.redraw_pix_info()
                 return True
             self.change_file(-1)
